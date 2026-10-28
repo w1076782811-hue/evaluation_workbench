@@ -731,3 +731,8 @@ input[type="checkbox"] { accent-color: var(--primary); }
   .pe-checks { padding: 12px; }
   .card-heading > .field { width: 100%; min-width: 0; }
 }
+
+/* Dimension summaries use three columns; defect rankings use four. */
+.dimension-summary-row { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 43px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.dimension-summary-row strong { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dimension-summary-row small { font-size: 10px; font-weight: 400; color: var(--muted); }
