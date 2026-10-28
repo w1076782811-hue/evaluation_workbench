@@ -1,0 +1,5 @@
+.env*
+.preview/
+exports/
+private_data/
+*.log
