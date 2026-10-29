@@ -213,6 +213,11 @@ const PE_VERSIONS = [
     version: "pe-v1.2", date: "2026-10-08", change: "加入保真约束与负面提示", usable_rate: 0.61,
     template: { subject: "提取商品类别与颜色，保持商品身份", structure: "依据参考图保留结构件数量、位置和比例", material: "将模糊质感词映射为表面描述，保持参考材质", environment: "补齐背景与道具，避免遮挡关键结构", lighting: "补齐主光方向与色温，要求接触阴影自然", composition: "补齐主体占比、视角和画幅，保留商品完整轮廓" },
     constraints: "禁止增减结构件、篡改标识、增加极限词；未知属性待补充。"
+  },
+  {
+    version: "pe-v2.0", rules_version: "pe-rules-v2.0", date: "2026-10-30", change: "六步规则引擎：来源可查、建议补全、增量纠偏", usable_rate: null,
+    template: { subject: "识别明确商品，缺少主体时提醒补充", structure: "保留已知结构，不凭品类编造层数和数量", material: "区分商品事实、口语术语化和风格建议", environment: "按明确要求、风格及品类依次补充拍摄建议", lighting: "统一主光和色温参数，支持相对亮度调整", composition: "保留明确画幅和占比，按适用条件补充默认值" },
+    constraints: "明确要求优先；系统约束分级；负面提示单独输出；规则覆盖不足时展示原因。"
   }
 ];
 

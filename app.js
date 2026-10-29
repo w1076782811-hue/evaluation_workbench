@@ -5,7 +5,10 @@
   const POSITIONS = ['左上', '中上', '右上', '左中', '中', '右中', '左下', '中下', '右下'];
   const PE_FIELDS = { subject: '主体', structure: '结构', material: '材质', environment: '环境', lighting: '光照', composition: '构图' };
   const PE_EXAMPLES = ['来个蒸锅图，高级一点的', '无线耳机白底主图，要干净、有质感', '护肤精华放在梳妆台上，温馨一点'];
-  const STORAGE_KEYS = { reviews: 'wb_reviews', statistics: 'wb_agreement_stat', index: 'wb_current_index', drafts: 'wb_review_drafts', pe: 'wb_pe_draft', theme: 'wb_theme', workspace: 'wb_workspace_v2' };
+  const PE_REFINEMENTS = [{ key: 'darker', label: '太亮了，调暗一点' }, { key: 'brighter', label: '太暗了，调亮一点' }, { key: 'bigger', label: '主体太小，放大一点' }, { key: 'smaller', label: '主体太大，缩小一点' }, { key: 'less_busy', label: '太花了，简洁一点' }];
+  const PE_HISTORY_LIMIT = 10;
+  const PE_SOURCE_LABELS = { explicit: '你明确说的', user: '你明确说的', terminology: '口语转为专业描述', term: '口语转为专业描述', fuzzy: '模糊词建议', imagery: '风格建议', category: '品类默认', completion: '品类默认', guardrail: '系统约束', default: '默认补充', manual: '你手动修改的', refinement: '你后续调整的', refine: '你后续调整的' };
+  const STORAGE_KEYS = { reviews: 'wb_reviews', statistics: 'wb_agreement_stat', index: 'wb_current_index', drafts: 'wb_review_drafts', pe: 'wb_pe_draft', peUnknown: 'wb_pe_unknown', theme: 'wb_theme', workspace: 'wb_workspace_v2' };
   const reportExporter = { write: report => console.log(JSON.stringify(report, null, 2)) };
   const storageAdapter = {
     read(key, fallback) {
@@ -160,7 +163,7 @@
     workspace: storageAdapter.read(STORAGE_KEYS.workspace, workspaceDefault),
     reviews: storageAdapter.read(STORAGE_KEYS.reviews, []), currentIndex: storageAdapter.read(STORAGE_KEYS.index, 0),
     drafts: storageAdapter.read(STORAGE_KEYS.drafts, {}),
-    pe: storageAdapter.read(STORAGE_KEYS.pe, { raw: PE_EXAMPLES[0], result: null, version: 'pe-v1.2' }),
+    pe: normalizePeDraft(storageAdapter.read(STORAGE_KEYS.pe, null)), peUnknown: storageAdapter.read(STORAGE_KEYS.peUnknown, {}),
     charts: [], route: '', toastTimer: null, filter: '', queue: { category: '', status: 'all', search: '' },
     reportSource: 'human', selectedCalibration: '', compareRunId: '', imageDb: null, imageUrls: {}, imageUpload: null, timer: null, pendingImportErrors: null
   };
@@ -392,8 +395,13 @@
     persistDraft(); renderReview(); toast('已添加人工确认的缺陷。');
   }
 
-  function expandPrompt(raw) {
-    const version = state.pe.version || 'pe-v1.2';
+  function normalizePeDraft(stored) {
+    const defaults = { raw: PE_EXAMPLES[0], result: null, version: 'pe-v2.0', category: 'auto', lastContext: null, resultSnapshot: null, session: { history: [] }, detailOpen: false };
+    if (!stored) return defaults;
+    return { ...defaults, ...stored, session: { history: [], ...stored.session } };
+  }
+
+  function legacyExpand(raw, version) {
     const result = Object.fromEntries(Object.keys(PE_FIELDS).map(key => [key, '待补充']));
     if (version === 'pe-v1.0') return { ...result, subject: raw.trim() || '待补充' };
     const groups = collectPromptFields(raw);
@@ -406,22 +414,202 @@
     return result;
   }
 
+  function expandPrompt(raw) {
+    if (state.pe.version !== 'pe-v2.0') { state.pe.lastContext = null; return legacyExpand(raw, state.pe.version); }
+    const context = window.PE_ENGINE.run(raw, { category: state.pe.category, session: { history: [] } });
+    state.pe.lastContext = context;
+    return { ...context.result.segments };
+  }
+
+  function isPeResultStale() {
+    const snapshot = state.pe.resultSnapshot;
+    return Boolean(state.pe.result && (!snapshot || snapshot.raw !== state.pe.raw.trim() || snapshot.category !== state.pe.category || snapshot.version !== state.pe.version));
+  }
+
+  function savePeDraft() {
+    if (storageAdapter.write(STORAGE_KEYS.pe, state.pe)) return true;
+    toast('这次转写未能保存到浏览器，请复制结果后再离开。');
+    return false;
+  }
+
+  function runPeRewrite() {
+    const raw = state.pe.raw.trim();
+    if (!raw) { toast('请先填写商品和你想要的画面。'); return; }
+    state.pe.result = expandPrompt(raw);
+    state.pe.resultVersion = state.pe.version;
+    state.pe.resultSnapshot = { raw, category: state.pe.category, version: state.pe.version };
+    state.pe.session.history = [];
+    state.pe.detailOpen = false;
+    if (state.pe.lastContext) recordUnknownPeTerms(state.pe.lastContext.unknown);
+    savePeDraft(); renderPe();
+  }
+
+  function recordUnknownPeTerms(unknown) {
+    [...new Set(unknown)].forEach(word => { state.peUnknown[word] = (Object.hasOwn(state.peUnknown, word) ? Number(state.peUnknown[word]) : 0) + 1; });
+    if (!storageAdapter.write(STORAGE_KEYS.peUnknown, state.peUnknown)) toast('未识别说法的次数未能保存，本次结果仍可查看。');
+  }
+
+  function requireCurrentPeResult() {
+    if (!state.pe.result) { toast('请先完成一次转写。'); return false; }
+    if (isPeResultStale()) { toast('输入、品类或版本已变化，请重新转写后再使用结果。'); return false; }
+    return true;
+  }
+
+  function getPeOutputText() {
+    return state.pe.lastContext ? window.PE_ENGINE.serialize(state.pe.lastContext) : formatPeSections(state.pe.result);
+  }
+
+  function formatPeSections(sections) {
+    return Object.entries(PE_FIELDS).map(([key, label]) => `${label}：${sections[key]}`).join('\n');
+  }
+
   function renderPe() {
-    document.querySelector('#page-pe').innerHTML = heading({ eyebrow: 'PROMPT ENGINEERING / 指令优化', title: '把模糊的要求，写成可评测的指令', description: '按六段结构补齐表达。当前为本地规则模拟，不调用大模型。' }) + `<div class="pe-layout"><article class="card"><div class="card-heading"><h2>用户原始指令</h2><span class="pill gray">INPUT</span></div><label class="field-label" for="pe-input">你希望生成怎样的商品图？</label><textarea id="pe-input" rows="6" placeholder="例如：来个蒸锅图，高级一点的">${escapeHtml(state.pe.raw)}</textarea><div class="example-list">${PE_EXAMPLES.map((example, index) => `<button class="example-button" data-action="pe-example" data-index="${index}">${escapeHtml(example)}</button>`).join('')}</div><button class="button primary" data-action="expand">转写为六段结构 →</button><p class="muted">规则未覆盖的信息标为“待补充”，请按商品实际情况确认。</p></article><article class="card"><div class="card-heading"><div><h2>结构化扩写结果</h2><p class="card-subtitle">六段可直接编辑 · 自动保存在当前浏览器</p></div><span class="pill blue">OUTPUT</span></div><div class="pe-sections">${Object.entries(PE_FIELDS).map(([key, label], index) => `<div class="pe-section"><h3><span class="dimension-code">0${index + 1}</span> ${label}</h3><div class="editable" contenteditable="plaintext-only" role="textbox" aria-multiline="true" aria-label="${label}扩写结果" data-pe-field="${key}">${escapeHtml(state.pe.result ? state.pe.result[key] : '等待转写')}</div></div>`).join('')}</div></article></div><article class="card"><div class="card-heading"><div><h2>模糊词映射表</h2><p class="card-subtitle">把主观感受，转成可以检查的视觉条件</p></div><label class="search-label"><span class="sr-only">搜索模糊词映射</span><input class="search-input" id="fuzzy-search" type="search" placeholder="搜索模糊词或具体描述" value="${escapeHtml(state.filter)}"></label></div><div class="table-wrap"><table class="data-table"><thead><tr><th>用户说</th><th>实际指什么</th><th>转写成</th></tr></thead><tbody id="fuzzy-body">${renderFuzzyRows()}</tbody></table></div></article><article class="card"><div class="card-heading"><div><h2>PE 版本记录</h2><p class="card-subtitle">点击版本，查看模板及相较上一版本的变化</p></div><span class="pill gray">预置历史</span></div><div class="version-list">${PE_VERSIONS.map(version => `<button class="version-button ${state.pe.version === version.version ? 'active' : ''}" data-action="pe-version" data-version="${version.version}"><strong class="mono">${version.version}</strong><span>${version.date}</span><span>${version.change}</span><small>可用率 ${percent(version.usable_rate)}</small></button>`).join('')}</div><div class="version-diff">${renderVersionDiff()}</div></article>`;
-    document.querySelector('#page-pe .pe-layout > article:last-child').insertAdjacentHTML('beforeend', renderPeChecks());
-    document.querySelector('#page-pe').insertAdjacentHTML('beforeend', renderPeExperiments());
+    document.querySelector('#page-pe').innerHTML = heading({ eyebrow: 'PE / 生产提效', title: '把口语要求，转成可以核对的出图指令', description: '本地六步规则转写。明确要求优先，规则建议和商品事实分开显示。' }) +
+      `<div class="pe-layout">${renderPeInput()}<article class="card" id="pe-result-card">${renderPeOutput()}</article></div>` +
+      renderPeMapping() + renderPeVersions() + renderPeExperiments() + renderPeUnknown();
+  }
+
+  function renderPeInput() {
+    const categories = Object.keys(window.PE_RULES.completion);
+    return `<article class="card"><div class="card-heading"><h2>用户原始指令</h2><span class="pill gray">原话</span></div><label class="field-label" for="pe-input">你希望生成怎样的商品图？</label><textarea id="pe-input" rows="6" placeholder="例如：来个蒸锅图，高级一点的">${escapeHtml(state.pe.raw)}</textarea><div class="example-list">${PE_EXAMPLES.map((example, index) => `<button class="example-button" data-action="pe-example" data-index="${index}">${escapeHtml(example)}</button>`).join('')}</div><label class="field pe-category">商品品类<select id="pe-category"><option value="auto" ${state.pe.category === 'auto' ? 'selected' : ''}>按原话识别</option>${categories.map(category => `<option value="${escapeHtml(category)}" ${state.pe.category === category ? 'selected' : ''}>${escapeHtml(category)}</option>`).join('')}</select></label><button class="button primary" data-action="expand">转写为六段结构 →</button><p class="muted">品类用于补充拍摄建议，不会凭空添加商品层数、材质和按键数量。选中的版本：${escapeHtml(state.pe.version)}。</p></article>`;
+  }
+
+  function renderPeOutput() {
+    const context = state.pe.lastContext;
+    const stale = isPeResultStale();
+    const title = `<div class="card-heading"><div><h2>结构化转写结果</h2><p class="card-subtitle">${state.pe.result ? `结果版本 ${escapeHtml(state.pe.resultVersion || '旧版记录')}${context ? ` · 规则 ${escapeHtml(context.rulesVersion)}` : ''}` : '先填写商品和画面要求，再点击转写'}</p></div><span class="pill blue">结果</span></div>`;
+    if (!state.pe.result) return title + '<p class="empty-state">这里会展示人话摘要、六段指令和需要你确认的内容。</p>';
+    const summary = context ? window.PE_ENGINE.summary(context) : '历史版本结果，展开查看六段原文。';
+    return title + `${stale ? '<p class="notice pe-stale" role="status">输入、品类或版本已变更；旧结果仍保留，重新转写后才可复制、调整和保存实验。</p>' : ''}<div class="pe-summary"><p class="pe-summary-text" id="pe-summary-text">我这样理解的：${escapeHtml(summary)}</p></div><div id="pe-metadata">${renderPeMetadata()}</div>${renderPeSections(stale)}${renderPeConstraints()}${renderPeRefinements(stale)}<div class="pe-output-actions"><button class="button primary" data-action="copy-pe" ${stale ? 'disabled' : ''}>复制完整提示词</button><span class="muted">包含六段、系统约束和独立的负面提示。</span></div>`;
+  }
+
+  function renderPeSections(stale) {
+    return `<details class="pe-details" id="pe-detail" ${state.pe.detailOpen ? 'open' : ''}><summary>查看和编辑完整六段</summary><p class="muted">手改内容会保留；后续纠偏若涉及手改段，会提示你核对。</p><div class="pe-sections">${Object.entries(PE_FIELDS).map(([key, label], index) => `<div class="pe-section"><h3><span class="dimension-code">0${index + 1}</span> ${label}${state.pe.lastContext?.manualFields?.[key] ? '<span class="pill gray">已手改</span>' : ''}</h3><div class="editable" contenteditable="${stale ? 'false' : 'plaintext-only'}" role="textbox" aria-multiline="true" aria-label="${label}转写结果" data-pe-field="${key}">${escapeHtml(state.pe.result[key])}</div></div>`).join('')}</div></details>`;
+  }
+
+  function renderPeMetadata() {
+    return renderPeConfidence() + renderPeChecks() + renderPeTrace();
+  }
+
+  function renderPeConfidence() {
+    const context = state.pe.lastContext;
+    if (!context) return '';
+    const score = context.confidence;
+    const level = score >= 0.75 ? '充分' : score >= 0.5 ? '需要核对' : '需要补充';
+    const tone = score >= 0.75 ? 'green' : score >= 0.5 ? 'amber' : 'red';
+    return `<div class="pe-confidence ${score < 0.5 ? 'danger' : score < 0.75 ? 'warn' : ''}"><span class="pill ${tone}">输入信息${level} · ${Math.round(score * 100)}%</span><p class="muted">这是按规则估算的信息充分度，不是理解准确率，也不代表出图成功率。</p>${score < 0.75 ? `<p>${context.reasons.map(escapeHtml).join('；') || '请核对规则补充的场景和风格。'}</p>` : ''}${score < 0.5 ? '<div class="pe-refine-group"><button class="button secondary small" data-action="pe-focus-input">补充商品名称</button><button class="button secondary small" data-action="pe-focus-category">确认商品品类</button><button class="button secondary small" data-action="pe-show-detail">查看待确认草稿</button></div>' : ''}</div>`;
+  }
+
+  function renderPeConstraints() {
+    const context = state.pe.lastContext;
+    if (!context) return '';
+    return `<div class="pe-constraints"><h3>系统约束</h3><p id="pe-constraints-text">${escapeHtml(context.result.constraints || '没有额外约束')}</p><h3>负面提示</h3><p class="muted">如出图工具提供负面提示输入框，请将下面这一段填入对应位置。</p><p class="pe-negatives" id="pe-negatives-text">${context.result.negatives.map(escapeHtml).join(', ') || '没有额外负面提示'}</p></div>`;
+  }
+
+  function renderPeRefinements(stale) {
+    if (!state.pe.lastContext) return '';
+    return `<div class="pe-refine-group" role="group" aria-label="按上一轮结果继续调整">${PE_REFINEMENTS.map(item => `<button class="button secondary small pe-refine-button" data-action="refine-pe" data-key="${item.key}" ${stale ? 'disabled' : ''}>${item.label}</button>`).join('')}<button class="button ghost small" data-action="undo-pe" ${stale || !state.pe.session.history.length ? 'disabled' : ''}>撤销上次纠偏</button></div><p class="muted">亮度每次相对调整 10%；主体占比每次调整 10 个百分点。这是在修改提示词，不会直接改变已有图片。</p>`;
+  }
+
+  function renderPeTrace() {
+    const context = state.pe.lastContext;
+    if (!context) return '';
+    const sources = Object.entries(context.sources || {});
+    return `<details class="pe-trace"><summary>查看识别过程和内容来源</summary><ul>${context.fragments.map(fragment => `<li><strong>${escapeHtml(PE_SOURCE_LABELS[fragment.type] || '规则处理')}</strong>：${escapeHtml(fragment.hit || '默认补充')} → ${escapeHtml(fragment.applied)}</li>`).join('')}</ul>${sources.length ? `<h3>参数从哪里来</h3><ul>${sources.map(([path, source]) => `<li>${escapeHtml(labelPeParameter(path))}：${escapeHtml(PE_SOURCE_LABELS[source.source] || '规则建议')}${source.hit ? `（${escapeHtml(source.hit)}）` : ''}</li>`).join('')}</ul>` : ''}${context.dropped.length ? `<h3>冲突处理</h3><ul>${context.dropped.map(item => `<li>${escapeHtml(item.name)} 与 ${escapeHtml(item.kept)} 冲突，未自动合用，请核对。</li>`).join('')}</ul>` : ''}${context.unknown.length ? `<p class="notice compact">尚未识别的说法：${context.unknown.map(escapeHtml).join('；')}。保留原话，请补充具体视觉要求。</p>` : ''}</details>`;
+  }
+
+  function labelPeParameter(path) {
+    const labels = { light: '光照', composition: '构图', color: '色彩', material: '材质', direction: '方向', softness: '柔硬', kelvin: '色温', contrast: '对比度', brightness: '亮度', subject_ratio: '主体占比', ratio: '画幅', angle: '视角', whitespace: '留白', saturation: '饱和度', tone: '色调', max_colors: '主要色彩数量', finish: '表面处理', props_count: '道具数量', environment: '环境', subject: '主体', structure: '结构' };
+    return path.split('.').map(part => labels[part] || '其他要求').join(' / ');
+  }
+
+  function renderPeMapping() {
+    return `<article class="card"><div class="card-heading"><div><h2>模糊词映射表</h2><p class="card-subtitle">页面与引擎使用同一份规则，明确要求优先于这些建议</p></div><label class="search-label"><span class="sr-only">搜索模糊词映射</span><input class="search-input" id="fuzzy-search" type="search" placeholder="搜索模糊词或具体描述" value="${escapeHtml(state.filter)}"></label></div><div class="table-wrap"><table class="data-table"><thead><tr><th>用户说</th><th>理解方向</th><th>规则建议</th></tr></thead><tbody id="fuzzy-body">${renderFuzzyRows()}</tbody></table></div></article>`;
   }
 
   function renderFuzzyRows() {
-    const matches = FUZZY_MAP.filter(item => Object.values(item).join(' ').toLowerCase().includes(state.filter.toLowerCase()));
-    return matches.length ? matches.map(item => `<tr><td><span class="fuzzy-term">${item.user_says}</span></td><td>${item.means}</td><td>${item.rewrite}</td></tr>`).join('') : '<tr><td colspan="3" class="empty-state">没有找到匹配的模糊词，请换个关键词。</td></tr>';
+    const rules = [...window.PE_RULES.fuzzy.subjective, ...window.PE_RULES.fuzzy.relative];
+    const matches = rules.filter(item => `${item.triggers.join(' ')} ${item.fragment}`.toLowerCase().includes(state.filter.toLowerCase()));
+    return matches.length ? matches.map(item => `<tr><td><span class="fuzzy-term">${escapeHtml(item.triggers.join(' / '))}</span></td><td>${escapeHtml(item.means || item.meaning || '转成可核对的视觉条件')}</td><td>${escapeHtml(item.fragment)}</td></tr>`).join('') : '<tr><td colspan="3" class="empty-state">没有找到匹配的模糊词，请换个关键词。</td></tr>';
+  }
+
+  function renderPeVersions() {
+    return `<article class="card"><div class="card-heading"><div><h2>PE 版本记录</h2><p class="card-subtitle">旧版本保留原规则；切换版本后需重新转写</p></div></div><div class="version-list">${PE_VERSIONS.map(version => `<button class="version-button ${state.pe.version === version.version ? 'active' : ''}" data-action="pe-version" data-version="${escapeHtml(version.version)}" aria-pressed="${state.pe.version === version.version}"><strong class="mono">${escapeHtml(version.version)}</strong><span>${escapeHtml(version.date)}</span><span>${escapeHtml(version.change)}</span><small>${version.usable_rate == null ? '可用率：待实际评测' : `演示可用率 ${percent(version.usable_rate)}`}</small></button>`).join('')}</div><div class="version-diff">${renderVersionDiff()}</div></article>`;
   }
 
   function renderVersionDiff() {
     const index = PE_VERSIONS.findIndex(version => version.version === state.pe.version);
     const current = PE_VERSIONS[index];
     const previous = PE_VERSIONS[index - 1];
-    return `<h3>${current.version}${previous ? ` 对比 ${previous.version}` : ' · 基线模板'}</h3><p>${current.change}</p><div class="table-wrap"><table class="data-table"><thead><tr><th>模板段落</th>${previous ? `<th>${previous.version}</th>` : ''}<th>${current.version}</th></tr></thead><tbody>${Object.entries(PE_FIELDS).map(([key, label]) => `<tr><th>${label}</th>${previous ? `<td>${escapeHtml(previous.template[key])}</td>` : ''}<td class="${previous && previous.template[key] !== current.template[key] ? 'diff-changed' : ''}">${escapeHtml(current.template[key])}</td></tr>`).join('')}</tbody></table></div><p class="muted">保真约束 / 负面提示：${escapeHtml(current.constraints)}</p>`;
+    return `<h3>${escapeHtml(current.version)}${previous ? ` 对比 ${escapeHtml(previous.version)}` : ' · 基线模板'}</h3><p>${escapeHtml(current.change)}</p><div class="table-wrap"><table class="data-table"><thead><tr><th>模板段落</th>${previous ? `<th>${escapeHtml(previous.version)}</th>` : ''}<th>${escapeHtml(current.version)}</th></tr></thead><tbody>${Object.entries(PE_FIELDS).map(([key, label]) => `<tr><th>${label}</th>${previous ? `<td>${escapeHtml(previous.template[key])}</td>` : ''}<td class="${previous && previous.template[key] !== current.template[key] ? 'diff-changed' : ''}">${escapeHtml(current.template[key])}</td></tr>`).join('')}</tbody></table></div><p class="muted">保真约束 / 负面提示：${escapeHtml(current.constraints)}</p><p class="muted">此处对比规则设计，实际效果以转写实验的同条件复核为准。</p>`;
+  }
+
+  function renderPeUnknown() {
+    const entries = Object.entries(state.peUnknown).sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0], 'zh-CN'));
+    return `<article class="card"><details class="pe-unknown-list"><summary>未识别说法（${entries.length}）</summary><p class="muted">仅统计这台浏览器中点击转写时未覆盖的说法；刷新和纠偏不会重复计数，可作为补库线索。</p>${entries.length ? `<ul>${entries.map(([word, count]) => `<li><span>${escapeHtml(word)}</span><span class="pill gray">${Number(count)} 次</span></li>`).join('')}</ul>` : '<p class="empty-state">还没有未识别说法。</p>'}</details></article>`;
+  }
+
+  function refreshPeOutput() {
+    const detail = document.querySelector('#pe-detail');
+    if (detail) state.pe.detailOpen = detail.open;
+    document.querySelector('#pe-result-card').innerHTML = renderPeOutput();
+    const saveButton = document.querySelector('[data-action="save-pe-experiment"]');
+    if (saveButton) saveButton.disabled = !state.pe.result || isPeResultStale();
+  }
+
+  function refinePeResult(key) {
+    if (!requireCurrentPeResult() || !state.pe.lastContext) return;
+    state.pe.detailOpen = document.querySelector('#pe-detail')?.open || false;
+    const previous = state.pe.lastContext;
+    state.pe.lastContext = window.PE_ENGINE.refine(previous, key);
+    const changed = state.pe.lastContext.result.prompt !== previous.result.prompt;
+    if (changed) state.pe.session.history = [...state.pe.session.history, structuredClone(previous)].slice(-PE_HISTORY_LIMIT);
+    state.pe.result = { ...state.pe.lastContext.result.segments };
+    savePeDraft(); renderPe(); toast(changed ? '已按上一轮参数调整，手改段继续保留，请核对摘要。' : '结果未发生变化，请查看核对提醒或直接编辑对应段。');
+  }
+
+  function undoPeRefinement() {
+    if (!requireCurrentPeResult() || !state.pe.session.history.length) return;
+    const manualFields = { ...state.pe.lastContext.manualFields };
+    state.pe.lastContext = state.pe.session.history.pop();
+    Object.entries(manualFields).forEach(([field, text]) => { state.pe.lastContext = window.PE_ENGINE.edit(state.pe.lastContext, field, text); });
+    state.pe.result = { ...state.pe.lastContext.result.segments };
+    savePeDraft(); renderPe(); toast('已撤销上次纠偏，之后手动修改的内容继续保留。');
+  }
+
+  function editPeSection(target) {
+    if (!requireCurrentPeResult()) return;
+    if (state.pe.lastContext) {
+      state.pe.lastContext = window.PE_ENGINE.edit(state.pe.lastContext, target.dataset.peField, target.textContent);
+      state.pe.result = { ...state.pe.lastContext.result.segments };
+      document.querySelector('#pe-summary-text').textContent = `我这样理解的：${window.PE_ENGINE.summary(state.pe.lastContext)}`;
+      document.querySelector('#pe-metadata').innerHTML = renderPeMetadata();
+      document.querySelector('#pe-constraints-text').textContent = state.pe.lastContext.result.constraints;
+      document.querySelector('#pe-negatives-text').textContent = state.pe.lastContext.result.negatives.join(', ');
+      const heading = target.closest('.pe-section').querySelector('h3');
+      if (!heading.querySelector('.pill')) heading.insertAdjacentHTML('beforeend', '<span class="pill gray">已手改</span>');
+    } else {
+      state.pe.result[target.dataset.peField] = target.textContent;
+      const checks = document.querySelector('.pe-checks');
+      if (checks) checks.outerHTML = renderPeChecks();
+    }
+    savePeDraft();
+  }
+
+  async function copyPePrompt() {
+    if (!requireCurrentPeResult()) return;
+    const prompt = getPeOutputText();
+    try {
+      if (!navigator.clipboard?.writeText) { showPeCopyFallback(prompt); return; }
+      await navigator.clipboard.writeText(prompt);
+      toast('已复制六段、系统约束和负面提示，请按出图工具的输入框分别使用。');
+    } catch (error) { showPeCopyFallback(prompt); }
+  }
+
+  function showPeCopyFallback(prompt) {
+    document.querySelector('#task-dialog-content').innerHTML = `<h2>请手动复制完整提示词</h2><p>浏览器没有允许自动复制。下面已选中文本，可按 Ctrl+C 复制。</p><label class="field">完整提示词<textarea id="pe-copy-fallback" rows="14" readonly>${escapeHtml(prompt)}</textarea></label>`;
+    document.querySelector('#task-dialog').showModal();
+    document.querySelector('#pe-copy-fallback').select();
   }
 
   function getHeatmap() {
@@ -517,9 +705,13 @@
       'drill-jump': () => { document.querySelector('#task-dialog').close(); jumpToSample(button.dataset.id); },
       'import-dataset': () => document.querySelector('#dataset-import').click(), 'download-template': downloadTemplate,
       'upload-image': () => requestImageUpload(button.dataset.kind), 'zoom-image': () => zoomImage(button.dataset.key),
-      'pe-example': () => { state.pe.raw = PE_EXAMPLES[Number(button.dataset.index)]; storageAdapter.write(STORAGE_KEYS.pe, state.pe); renderPe(); },
-      expand: () => { if (!state.pe.raw.trim()) { toast('请先输入指令。'); return; } state.pe.result = expandPrompt(state.pe.raw.trim()); state.pe.resultVersion = state.pe.version; storageAdapter.write(STORAGE_KEYS.pe, state.pe); renderPe(); },
-      'pe-version': () => { state.pe.version = button.dataset.version; storageAdapter.write(STORAGE_KEYS.pe, state.pe); renderPe(); },
+      'pe-example': () => { state.pe.raw = PE_EXAMPLES[Number(button.dataset.index)]; savePeDraft(); renderPe(); },
+      expand: runPeRewrite,
+      'pe-version': () => { state.pe.version = button.dataset.version; savePeDraft(); renderPe(); },
+      'copy-pe': copyPePrompt, 'refine-pe': () => refinePeResult(button.dataset.key), 'undo-pe': undoPeRefinement,
+      'pe-focus-input': () => document.querySelector('#pe-input').focus(),
+      'pe-focus-category': () => document.querySelector('#pe-category').focus(),
+      'pe-show-detail': () => { document.querySelector('#pe-detail').open = true; document.querySelector('#pe-detail').scrollIntoView({ block: 'nearest' }); },
       'save-pe-experiment': savePeExperiment,
       export: () => { const report = getReport(); reportExporter.write(report); downloadJson(`evaluation-${getActiveRun().run_id}.json`, report); const feedback = document.querySelector('#export-feedback'); feedback.hidden = false; feedback.textContent = '已下载当前口径的报告 JSON，控制台同时输出。'; toast('报告已导出。'); }
     };
@@ -806,12 +998,22 @@
 
   function renderPeChecks() {
     if (!state.pe.result) return '';
+    const context = state.pe.lastContext;
+    if (context) {
+      const warnings = [...new Set([...context.warnings, ...window.PE_ENGINE.check(context)])];
+      const explicit = Object.entries(context.explicit || {});
+      return `<div class="pe-checks"><h3>明确要求核对</h3><p class="muted">以下来自你的原话；规则补充内容可在识别过程里查看来源。</p>${explicit.length ? `<ul>${explicit.map(([path, value]) => `<li>${escapeHtml(labelPeParameter(path))}：${escapeHtml(String(value))}</li>`).join('')}</ul>` : '<p>尚无可确认的商品或画面参数，请核对主体和拍摄要求。</p>'}${warnings.map(warning => `<p class="notice compact">${escapeHtml(warning)}</p>`).join('')}</div>`;
+    }
     const checks = getPromptChecks(state.pe.raw, state.pe.result);
     return `<div class="pe-checks"><p class="notice compact">当前结果来自 ${escapeHtml(state.pe.resultVersion || '旧版预置')}；选择其他模板后，请点击转写生成对应结果。</p><h3>明确要求核对</h3><p>${checks.explicit_constraints.map(escapeHtml).join('；') || '尚无明确要求'}</p><p class="muted">原要求待补充：${checks.missing_fields.map(key => PE_FIELDS[key]).join('、') || '六段均有明确输入'}</p>${checks.warnings.map(warning => `<p class="notice compact">${escapeHtml(warning)}</p>`).join('')}${checks.fuzzy_terms.map(item => `<p><strong>${escapeHtml(item.term)} · 待确认建议</strong>：${escapeHtml(item.suggestion)}</p>`).join('')}</div>`;
   }
 
   function renderPeExperiments() {
-    return `<article class="card"><div class="card-heading"><div><h2>转写实验记录</h2><p class="muted">保存原话、六段结果和模板版本；只有关联实际两轮结果后才展示比较。</p></div><button class="button secondary" data-action="save-pe-experiment" ${state.pe.result ? '' : 'disabled'}>保存这次转写</button></div><div class="experiment-list">${state.workspace.experiments.length ? state.workspace.experiments.map(experiment => `<div class="experiment-item"><strong>${escapeHtml(experiment.pe_version)}</strong><p>${escapeHtml(experiment.prompt_raw)}</p><small>${formatDate(experiment.created_at)} · 已保存原话与六段结果</small><form class="experiment-form" data-experiment-id="${experiment.experiment_id}"><div class="form-grid"><label class="field">原指令运行<select name="baseline_run_id"><option value="">选择</option>${renderRunOptions(experiment.baseline_run_id)}</select></label><label class="field">改写后运行<select name="compared_run_id"><option value="">选择</option>${renderRunOptions(experiment.compared_run_id)}</select></label></div><button class="button secondary small">关联实际结果</button></form><p class="muted">${escapeHtml(experiment.conclusion || '待关联评测，不预填提升效果。')}</p></div>`).join('') : '<p class="empty-state">暂无实验记录，完成转写后可保存。</p>'}</div></article>`;
+    return `<article class="card"><div class="card-heading"><div><h2>转写实验记录</h2><p class="muted">保存生成时原话、完整提示词与规则快照；关联同条件两轮实际复核后才展示变化。</p></div><button class="button secondary" data-action="save-pe-experiment" ${state.pe.result && !isPeResultStale() ? '' : 'disabled'}>保存这次转写</button></div><div class="experiment-list">${state.workspace.experiments.length ? state.workspace.experiments.map(renderPeExperiment).join('') : '<p class="empty-state">暂无实验记录，完成转写后可保存。</p>'}</div></article>`;
+  }
+
+  function renderPeExperiment(experiment) {
+    return `<div class="experiment-item"><strong>${escapeHtml(experiment.pe_version)}</strong>${experiment.rules_version ? `<span class="pill gray">${escapeHtml(experiment.rules_version)}</span>` : ''}<p>${escapeHtml(experiment.prompt_raw)}</p><small>${formatDate(experiment.created_at)} · ${experiment.prompt_full ? '已保存完整提示词' : '历史六段记录'}</small><details class="pe-experiment-detail"><summary>查看保存的提示词</summary><pre>${escapeHtml(experiment.prompt_full || formatPeSections(experiment.prompt_sections))}</pre></details><form class="experiment-form" data-experiment-id="${escapeHtml(experiment.experiment_id)}"><div class="form-grid"><label class="field">原指令运行<select name="baseline_run_id"><option value="">选择</option>${renderRunOptions(experiment.baseline_run_id)}</select></label><label class="field">改写后运行<select name="compared_run_id"><option value="">选择</option>${renderRunOptions(experiment.compared_run_id)}</select></label></div><button class="button secondary small">关联实际结果</button></form><p class="muted">${escapeHtml(experiment.conclusion || '待关联评测，不预填提升效果。')}</p></div>`;
   }
 
   function renderRunOptions(selected) {
@@ -819,8 +1021,13 @@
   }
 
   function savePeExperiment() {
-    const experiment = createPromptExperiment({ experimentId: crypto.randomUUID(), runId: getActiveRun().run_id, sampleId: getSamples()[state.currentIndex]?.sample_id, version: state.pe.resultVersion || state.pe.version, raw: state.pe.raw, result: state.pe.result, createdAt: new Date().toISOString() });
-    state.workspace.experiments.push(experiment); saveWorkspace(); renderPe(); toast('转写实验已保存，等待实际评测。');
+    if (!requireCurrentPeResult()) return;
+    const context = state.pe.lastContext;
+    const artifact = { prompt_full: getPeOutputText(), engine_version: context?.version || state.pe.resultVersion, rules_version: context?.rulesVersion || null, constraints: context?.result.constraints || '', negatives: context ? [...context.result.negatives] : [], params: context ? structuredClone(context.params) : null, category: context?.category || state.pe.category, context: context ? structuredClone(context) : null, input_snapshot: { ...state.pe.resultSnapshot } };
+    const experiment = createPromptExperiment({ experimentId: crypto.randomUUID(), runId: getActiveRun().run_id, sampleId: getSamples()[state.currentIndex]?.sample_id, version: state.pe.resultVersion, raw: state.pe.resultSnapshot.raw, result: state.pe.result, createdAt: new Date().toISOString(), artifact });
+    const workspace = { ...state.workspace, experiments: [...state.workspace.experiments, experiment] };
+    if (!storageAdapter.write(STORAGE_KEYS.workspace, workspace)) { toast('实验未能保存，请先复制提示词。'); return; }
+    state.workspace = workspace; renderPe(); toast('已保存完整转写快照，等待实际评测。');
   }
 
   function linkExperiment(form) {
@@ -833,7 +1040,7 @@
     if (conditions.some(value => value == null || /未记录|待补充|未知/.test(String(value)))) { toast('生成条件仍有未记录项，补全后再比较 PE 效果。'); return; }
     const experiment = state.workspace.experiments.find(item => item.experiment_id === form.dataset.experimentId);
     const normalizePrompt = text => text.replace(/\s+/g, '');
-    const expanded = Object.entries(PE_FIELDS).map(([key, label]) => `${label}：${experiment.prompt_sections[key]}`).join('\n');
+    const expanded = experiment.prompt_full || formatPeSections(experiment.prompt_sections);
     const oldReviews = state.reviews.filter(review => review.run_id === before); const newReviews = state.reviews.filter(review => review.run_id === after);
     const pairs = oldReviews.flatMap(review => {
       const newer = newReviews.find(item => item.sample_id === review.sample_id);
@@ -842,7 +1049,7 @@
       const bound = oldSample && newSample && normalizePrompt(oldSample.prompt_raw) === normalizePrompt(experiment.prompt_raw) && normalizePrompt(newSample.prompt_raw) === normalizePrompt(expanded);
       return newer && bound ? [[review.weighted_quality, newer.weighted_quality]] : [];
     });
-    if (!pairs.length) { toast('需要同样本实际复核，且两轮指令分别对应本次原话和带六段标签的改写结果。'); return; }
+    if (!pairs.length) { toast('需要同样本实际复核，且两轮指令分别对应保存的原话和完整改写提示词。'); return; }
     const previous = pairs.reduce((sum, pair) => sum + pair[0], 0) / pairs.length; const current = pairs.reduce((sum, pair) => sum + pair[1], 0) / pairs.length;
     Object.assign(experiment, { baseline_run_id: before, compared_run_id: after, status: 'compared', conclusion: `已关联 ${pairs.length} 条同样本复核。加权质量均分 ${percent(previous)} → ${percent(current)}，相对变化 ${formatChange(getRelativeChange(previous, current))}；仅适用于这批配对样本，不等于整体可用率提升。` });
     saveWorkspace(); renderPe();
@@ -976,13 +1183,14 @@
 
   function handleInput(event) {
     if (event.target.id === 'defect-note') { getDraft().note = event.target.value; persistDraft(); }
-    if (event.target.id === 'pe-input') { state.pe.raw = event.target.value; storageAdapter.write(STORAGE_KEYS.pe, state.pe); }
+    if (event.target.id === 'pe-input') { state.pe.raw = event.target.value; savePeDraft(); refreshPeOutput(); }
     if (event.target.id === 'fuzzy-search') { state.filter = event.target.value; document.querySelector('#fuzzy-body').innerHTML = renderFuzzyRows(); }
-    if (event.target.dataset.peField) { state.pe.result ||= Object.fromEntries(Object.keys(PE_FIELDS).map(key => [key, '待补充'])); state.pe.result[event.target.dataset.peField] = event.target.textContent; storageAdapter.write(STORAGE_KEYS.pe, state.pe); const checks = document.querySelector('.pe-checks'); if (checks) checks.outerHTML = renderPeChecks(); }
+    if (event.target.dataset.peField) editPeSection(event.target);
     if (event.target.id === 'image-zoom') document.querySelector('#zoom-image').style.width = `${Number(event.target.value) * 100}%`;
   }
 
   function handleChange(event) {
+    if (event.target.id === 'pe-category') { state.pe.category = event.target.value; savePeDraft(); refreshPeOutput(); }
     if (event.target.id === 'blind-toggle') switchBlindMode(event.target.checked);
     if (event.target.id === 'defect-code') { getDraft().code = event.target.value; persistDraft(); }
     if (event.target.id === 'dataset-import') void importDataset(event.target.files[0]);
@@ -1065,6 +1273,7 @@
       pe_version: options.version,
       prompt_raw: options.raw,
       prompt_sections: { ...options.result },
+      ...options.artifact,
       created_at: options.createdAt,
       status: 'awaiting_evaluation',
       baseline_run_id: null,
