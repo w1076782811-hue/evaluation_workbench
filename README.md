@@ -2,6 +2,10 @@
 
 一份可双击打开、也可发布到 GitHub Pages 的原生 HTML/CSS/JavaScript 工作台。无需安装依赖或启动后端。
 
+**在线使用：[打开工作台](https://w1076782811-hue.github.io/evaluation_workbench/)**
+
+代码仓库：[w1076782811-hue/evaluation_workbench](https://github.com/w1076782811-hue/evaluation_workbench)。分享给他人时，请使用上面的在线使用地址。
+
 ## 使用
 
 - 本机：用 Chrome 或 Edge 打开 `index.html`。
