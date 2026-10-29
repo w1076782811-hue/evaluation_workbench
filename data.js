@@ -195,7 +195,10 @@ const DEFECT_CODES = [
   { code: "L6-01", name: "跨图结构不一致", level: "Must" },
   { code: "L6-02", name: "跨图材质颜色漂移", level: "Must" },
   { code: "L7-01", name: "构图失衡", level: "Must" },
-  { code: "L8-01", name: "极限词", level: "Gate" }
+  { code: "L7-02", name: "场景错配", level: "Must" },
+  { code: "L7-04", name: "卖点无证据", level: "Should" },
+  { code: "L8-01", name: "极限词", level: "Gate" },
+  { code: "L8-02", name: "功效暗示", level: "Gate" }
 ];
 
 const PE_VERSIONS = [

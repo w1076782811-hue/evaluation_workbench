@@ -783,6 +783,21 @@ input[type="checkbox"] { accent-color: var(--primary); }
 .pe-experiment-detail { margin: 12px 0; }
 .pe-experiment-detail pre { padding: 12px; margin-top: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-soft); font: inherit; font-size: 11px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
 .experiment-item > .pill { margin-left: 8px; }
+.task-progress { display: grid; gap: 5px; min-width: 125px; font-size: 11px; color: var(--muted); margin: 8px 0; }
+.task-progress progress { display: block; appearance: none; width: 100%; height: 7px; border: 0; border-radius: 5px; overflow: hidden; background: var(--surface-muted); }
+.task-progress progress::-webkit-progress-bar { background: var(--surface-muted); border-radius: 5px; }
+.task-progress progress::-webkit-progress-value { background: var(--primary); border-radius: 5px; }
+.task-progress progress::-moz-progress-bar { background: var(--primary); border-radius: 5px; }
+.task-row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
+.task-context { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; padding: 14px 18px; }
+.task-context small { display: block; margin-top: 7px; color: var(--muted); font-size: 11px; }
+.task-context > div { min-width: 0; overflow-wrap: anywhere; }
+.task-checks { display: flex; flex-wrap: wrap; gap: 10px 16px; margin: 14px 0; font-size: 12px; }
+.task-checks strong { flex-basis: 100%; }
+.task-checks label { display: flex; align-items: center; gap: 6px; }
+#task-dialog fieldset { margin: 14px 0; padding: 12px; border: 1px solid var(--border); border-radius: 6px; }
+#task-dialog-content { overflow-wrap: anywhere; }
+@media (max-width: 620px) { .task-context { display: block; padding: 12px; } .task-row-actions .button { min-height: 36px; } }
 #pe-copy-fallback { min-width: 0; max-width: 100%; white-space: pre-wrap; }
 
 @media (max-width: 620px) {
