@@ -741,6 +741,9 @@ input[type="checkbox"] { accent-color: var(--primary); }
 .pe-category { margin: 16px 0; font-size: 12px; color: var(--muted); }
 .pe-summary { padding: 14px; border-left: 3px solid var(--primary); border-radius: 4px; background: var(--primary-soft); }
 .pe-summary-text { color: var(--heading); font-size: 13px; line-height: 1.9; overflow-wrap: anywhere; }
+.pe-prompt-output { margin-top: 16px; }
+.pe-prompt-output > .muted { margin: 7px 0 10px; font-size: 11px; line-height: 1.8; }
+.pe-prompt-preview { display: block; width: 100%; min-width: 0; height: clamp(260px, 42dvh, 420px); min-height: 220px; max-height: 75dvh; padding: 13px; overflow-x: hidden; overflow-y: scroll; resize: vertical; scrollbar-gutter: stable; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-soft); color: var(--ink); font: inherit; font-size: 12px; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; }
 .pe-confidence { margin-top: 14px; font-size: 12px; line-height: 1.8; }
 .pe-confidence.warn { color: var(--amber); }
 .pe-confidence.danger { color: var(--red); }
@@ -760,6 +763,12 @@ input[type="checkbox"] { accent-color: var(--primary); }
 .pe-constraints h3:not(:first-child) { margin-top: 14px; }
 .pe-constraints p { font-size: 11px; line-height: 1.85; overflow-wrap: anywhere; white-space: pre-wrap; }
 .pe-constraints .pe-negatives { margin-top: 7px; color: var(--muted); }
+.pe-negative-meaning { padding-left: 18px; margin: 10px 0; font-size: 11px; line-height: 1.9; }
+.pe-negative-detail { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.pe-negative-detail > summary { cursor: pointer; color: var(--primary); font-size: 12px; line-height: 1.8; }
+.pe-negative-detail .muted { margin: 10px 0; }
+.pe-negative-detail .field { margin: 12px 0; }
+.pe-negative-detail textarea { width: 100%; overflow-y: auto; resize: vertical; font-size: 11px; line-height: 1.8; }
 .pe-refine-group { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 16px; }
 .pe-refine-button { transition: border-color 150ms, background-color 150ms; }
 .pe-refine-group + .muted { margin-top: 8px; font-size: 10px; line-height: 1.8; }

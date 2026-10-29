@@ -7,6 +7,8 @@
   const PE_EXAMPLES = ['来个蒸锅图，高级一点的', '无线耳机白底主图，要干净、有质感', '护肤精华放在梳妆台上，温馨一点'];
   const PE_REFINEMENTS = [{ key: 'darker', label: '太亮了，调暗一点' }, { key: 'brighter', label: '太暗了，调亮一点' }, { key: 'bigger', label: '主体太小，放大一点' }, { key: 'smaller', label: '主体太大，缩小一点' }, { key: 'less_busy', label: '太花了，简洁一点' }];
   const PE_HISTORY_LIMIT = 10;
+  const PE_NEGATIVE_LABELS = { 'unauthorized text': '未经要求添加的文字', 'third-party logo': '额外添加的第三方标识', watermark: '水印', 'extra fingers': '多余的手指（人物或手持场景适用）', 'deformed hands': '畸形手部（人物或手持场景适用）', blurry: '主体模糊、失焦（不等于禁止背景虚化）', 'jpeg artifacts': '压缩造成的方块、杂边等瑕疵', people: '人物', person: '人物', hand: '手部', finger: '手指', text: '文字', letters: '字母', logo: '标识', label: '标签', colorful: '过于花哨的配色', busy: '过于繁杂的画面', cluttered: '杂乱元素', scenery: '额外场景', props: '道具', arm: '手臂', holding: '手持动作', glare: '刺眼眩光', 'excessive reflection': '过强反光', 'wide shot': '过远景别', distant: '主体距离过远', 'hard cast shadow': '生硬的投影', wood: '木质', 'wooden texture': '木纹', clutter: '杂物', overexposure: '过曝' };
+  const PE_COPY_LABELS = { record: '完整记录（含英文备查）', positive: '中文出图提示词', negative: '英文负面提示' };
   const PE_SOURCE_LABELS = { explicit: '你明确说的', user: '你明确说的', terminology: '口语转为专业描述', term: '口语转为专业描述', fuzzy: '模糊词建议', imagery: '风格建议', category: '品类默认', completion: '品类默认', guardrail: '系统约束', default: '默认补充', manual: '你手动修改的', refinement: '你后续调整的', refine: '你后续调整的' };
   const STORAGE_KEYS = { reviews: 'wb_reviews', statistics: 'wb_agreement_stat', index: 'wb_current_index', drafts: 'wb_review_drafts', pe: 'wb_pe_draft', peUnknown: 'wb_pe_unknown', theme: 'wb_theme', workspace: 'wb_workspace_v2' };
   const reportExporter = { write: report => console.log(JSON.stringify(report, null, 2)) };
@@ -459,6 +461,13 @@
     return state.pe.lastContext ? window.PE_ENGINE.serialize(state.pe.lastContext) : formatPeSections(state.pe.result);
   }
 
+  function getPePositiveText() {
+    if (!state.pe.result) return '';
+    const sections = formatPeSections(state.pe.result);
+    const constraints = state.pe.lastContext?.result.constraints;
+    return constraints ? `${sections}\n画面要求：${constraints.replace(/\blogo\b/gi, '品牌标识')}` : sections;
+  }
+
   function formatPeSections(sections) {
     return Object.entries(PE_FIELDS).map(([key, label]) => `${label}：${sections[key]}`).join('\n');
   }
@@ -480,7 +489,15 @@
     const title = `<div class="card-heading"><div><h2>结构化转写结果</h2><p class="card-subtitle">${state.pe.result ? `结果版本 ${escapeHtml(state.pe.resultVersion || '旧版记录')}${context ? ` · 规则 ${escapeHtml(context.rulesVersion)}` : ''}` : '先填写商品和画面要求，再点击转写'}</p></div><span class="pill blue">结果</span></div>`;
     if (!state.pe.result) return title + '<p class="empty-state">这里会展示人话摘要、六段指令和需要你确认的内容。</p>';
     const summary = context ? window.PE_ENGINE.summary(context) : '历史版本结果，展开查看六段原文。';
-    return title + `${stale ? '<p class="notice pe-stale" role="status">输入、品类或版本已变更；旧结果仍保留，重新转写后才可复制、调整和保存实验。</p>' : ''}<div class="pe-summary"><p class="pe-summary-text" id="pe-summary-text">我这样理解的：${escapeHtml(summary)}</p></div><div id="pe-metadata">${renderPeMetadata()}</div>${renderPeSections(stale)}${renderPeConstraints()}${renderPeRefinements(stale)}<div class="pe-output-actions"><button class="button primary" data-action="copy-pe" ${stale ? 'disabled' : ''}>复制完整提示词</button><span class="muted">包含六段、系统约束和独立的负面提示。</span></div>`;
+    return title + `${stale ? '<p class="notice pe-stale" role="status">输入、品类或版本已变更；旧结果仍保留，重新转写后才可复制、调整和保存实验。</p>' : ''}<div class="pe-summary"><p class="pe-summary-text" id="pe-summary-text">我这样理解的：${escapeHtml(summary)}</p></div>${renderPePromptPreview()}<div id="pe-metadata">${renderPeMetadata()}</div>${renderPeSections(stale)}${renderPeConstraints()}${renderPeRefinements(stale)}${renderPeCopyActions(stale)}`;
+  }
+
+  function renderPeCopyActions(stale) {
+    return `<div class="pe-output-actions"><button class="button primary" data-action="copy-pe-positive" ${stale ? 'disabled' : ''}>复制中文出图提示词</button><button class="button ghost small" data-action="copy-pe" ${stale ? 'disabled' : ''}>复制完整记录（含英文备查）</button><p class="muted">使用即梦、豆包时，复制上面的中文出图提示词即可；英文备查内容不会混入。</p></div>`;
+  }
+
+  function renderPePromptPreview() {
+    return `<div class="pe-prompt-output"><label class="field-label" for="pe-prompt-preview">出图提示词（完整）</label><p class="muted" id="pe-prompt-preview-help">下面包含完整六段和画面要求。长内容可在框内上下滚动，也可拖动右下角扩大阅读区；需要修改时展开下方六段编辑。</p><textarea class="pe-prompt-preview" id="pe-prompt-preview" rows="14" readonly wrap="soft" spellcheck="false" aria-describedby="pe-prompt-preview-help">${escapeHtml(getPePositiveText())}</textarea></div>`;
   }
 
   function renderPeSections(stale) {
@@ -503,7 +520,11 @@
   function renderPeConstraints() {
     const context = state.pe.lastContext;
     if (!context) return '';
-    return `<div class="pe-constraints"><h3>系统约束</h3><p id="pe-constraints-text">${escapeHtml(context.result.constraints || '没有额外约束')}</p><h3>负面提示</h3><p class="muted">如出图工具提供负面提示输入框，请将下面这一段填入对应位置。</p><p class="pe-negatives" id="pe-negatives-text">${context.result.negatives.map(escapeHtml).join(', ') || '没有额外负面提示'}</p></div>`;
+    return `<div class="pe-constraints"><h3>画面要求</h3><p id="pe-constraints-text">${escapeHtml(context.result.constraints || '没有额外约束')}</p><h3>负面提示是什么意思？</h3><p>这是希望避开的内容，供核对和按需使用。你使用即梦、豆包时，先用上面的中文出图提示词，不必另贴这串英文。</p><ul class="pe-negative-meaning">${context.result.negatives.map(word => `<li>${escapeHtml(PE_NEGATIVE_LABELS[word] || '其他排除项，展开英文备查看具体内容')}</li>`).join('')}</ul><p class="muted">手指类要求只针对人物或手持场景；“主体清晰”不妨碍按要求虚化背景。这些是候选约束，不保证出图一定避开问题。</p>${renderPeNegativeDetail(context)}</div>`;
+  }
+
+  function renderPeNegativeDetail(context) {
+    return `<details class="pe-negative-detail"><summary>高级选项：英文负面提示与词义（按需使用）</summary><p class="muted">仅供明确支持独立负面提示输入栏的工具。英文不天然比中文有效；不要把这一段直接混进普通出图输入框。</p><div class="table-wrap"><table class="data-table"><thead><tr><th>英文</th><th>中文含义</th></tr></thead><tbody>${context.result.negatives.map(word => `<tr><td>${escapeHtml(word)}</td><td>${escapeHtml(PE_NEGATIVE_LABELS[word] || '其他排除项，请按当前模型说明确认')}</td></tr>`).join('')}</tbody></table></div><label class="field">英文负面提示<textarea class="pe-negatives" id="pe-negatives-text" rows="3" readonly>${escapeHtml(context.result.negatives.join(', '))}</textarea></label><button class="button secondary small" data-action="copy-pe-negative" ${isPeResultStale() ? 'disabled' : ''}>仅复制英文负面提示</button></details>`;
   }
 
   function renderPeRefinements(stale) {
@@ -585,7 +606,7 @@
       document.querySelector('#pe-summary-text').textContent = `我这样理解的：${window.PE_ENGINE.summary(state.pe.lastContext)}`;
       document.querySelector('#pe-metadata').innerHTML = renderPeMetadata();
       document.querySelector('#pe-constraints-text').textContent = state.pe.lastContext.result.constraints;
-      document.querySelector('#pe-negatives-text').textContent = state.pe.lastContext.result.negatives.join(', ');
+      document.querySelector('#pe-negatives-text').value = state.pe.lastContext.result.negatives.join(', ');
       const heading = target.closest('.pe-section').querySelector('h3');
       if (!heading.querySelector('.pill')) heading.insertAdjacentHTML('beforeend', '<span class="pill gray">已手改</span>');
     } else {
@@ -593,21 +614,25 @@
       const checks = document.querySelector('.pe-checks');
       if (checks) checks.outerHTML = renderPeChecks();
     }
+    const preview = document.querySelector('#pe-prompt-preview');
+    if (preview) preview.value = getPePositiveText();
     savePeDraft();
   }
 
-  async function copyPePrompt() {
+  async function copyPePrompt(kind = 'record') {
     if (!requireCurrentPeResult()) return;
-    const prompt = getPeOutputText();
+    const prompt = kind === 'positive' ? getPePositiveText() : kind === 'negative' ? state.pe.lastContext.result.negatives.join(', ') : getPeOutputText();
+    const label = PE_COPY_LABELS[kind];
     try {
-      if (!navigator.clipboard?.writeText) { showPeCopyFallback(prompt); return; }
+      if (!navigator.clipboard?.writeText) { showPeCopyFallback(prompt, label); return; }
       await navigator.clipboard.writeText(prompt);
-      toast('已复制六段、系统约束和负面提示，请按出图工具的输入框分别使用。');
-    } catch (error) { showPeCopyFallback(prompt); }
+      const instruction = kind === 'positive' ? '可粘贴到即梦或豆包的出图输入框。' : kind === 'negative' ? '仅填入支持它的独立负面提示栏。' : '含英文备查，请勿整段混入普通出图输入框。';
+      toast(`已复制${label}，${instruction}`);
+    } catch (error) { showPeCopyFallback(prompt, label); }
   }
 
-  function showPeCopyFallback(prompt) {
-    document.querySelector('#task-dialog-content').innerHTML = `<h2>请手动复制完整提示词</h2><p>浏览器没有允许自动复制。下面已选中文本，可按 Ctrl+C 复制。</p><label class="field">完整提示词<textarea id="pe-copy-fallback" rows="14" readonly>${escapeHtml(prompt)}</textarea></label>`;
+  function showPeCopyFallback(prompt, label) {
+    document.querySelector('#task-dialog-content').innerHTML = `<h2>请手动复制${escapeHtml(label)}</h2><p>浏览器没有允许自动复制。下面已选中文本，可按 Ctrl+C 复制。</p><label class="field">${escapeHtml(label)}<textarea id="pe-copy-fallback" rows="14" readonly>${escapeHtml(prompt)}</textarea></label>`;
     document.querySelector('#task-dialog').showModal();
     document.querySelector('#pe-copy-fallback').select();
   }
@@ -708,7 +733,7 @@
       'pe-example': () => { state.pe.raw = PE_EXAMPLES[Number(button.dataset.index)]; savePeDraft(); renderPe(); },
       expand: runPeRewrite,
       'pe-version': () => { state.pe.version = button.dataset.version; savePeDraft(); renderPe(); },
-      'copy-pe': copyPePrompt, 'refine-pe': () => refinePeResult(button.dataset.key), 'undo-pe': undoPeRefinement,
+      'copy-pe': copyPePrompt, 'copy-pe-positive': () => copyPePrompt('positive'), 'copy-pe-negative': () => copyPePrompt('negative'), 'refine-pe': () => refinePeResult(button.dataset.key), 'undo-pe': undoPeRefinement,
       'pe-focus-input': () => document.querySelector('#pe-input').focus(),
       'pe-focus-category': () => document.querySelector('#pe-category').focus(),
       'pe-show-detail': () => { document.querySelector('#pe-detail').open = true; document.querySelector('#pe-detail').scrollIntoView({ block: 'nearest' }); },
@@ -1013,7 +1038,13 @@
   }
 
   function renderPeExperiment(experiment) {
-    return `<div class="experiment-item"><strong>${escapeHtml(experiment.pe_version)}</strong>${experiment.rules_version ? `<span class="pill gray">${escapeHtml(experiment.rules_version)}</span>` : ''}<p>${escapeHtml(experiment.prompt_raw)}</p><small>${formatDate(experiment.created_at)} · ${experiment.prompt_full ? '已保存完整提示词' : '历史六段记录'}</small><details class="pe-experiment-detail"><summary>查看保存的提示词</summary><pre>${escapeHtml(experiment.prompt_full || formatPeSections(experiment.prompt_sections))}</pre></details><form class="experiment-form" data-experiment-id="${escapeHtml(experiment.experiment_id)}"><div class="form-grid"><label class="field">原指令运行<select name="baseline_run_id"><option value="">选择</option>${renderRunOptions(experiment.baseline_run_id)}</select></label><label class="field">改写后运行<select name="compared_run_id"><option value="">选择</option>${renderRunOptions(experiment.compared_run_id)}</select></label></div><button class="button secondary small">关联实际结果</button></form><p class="muted">${escapeHtml(experiment.conclusion || '待关联评测，不预填提升效果。')}</p></div>`;
+    return `<div class="experiment-item"><strong>${escapeHtml(experiment.pe_version)}</strong>${experiment.rules_version ? `<span class="pill gray">${escapeHtml(experiment.rules_version)}</span>` : ''}<p>${escapeHtml(experiment.prompt_raw)}</p><small>${formatDate(experiment.created_at)} · ${experiment.prompt_for_generation ? '已保存中文出图提示词与完整记录' : experiment.prompt_full ? '已保存完整提示词' : '历史六段记录'}</small>${renderPeExperimentPrompt(experiment)}<form class="experiment-form" data-experiment-id="${escapeHtml(experiment.experiment_id)}"><div class="form-grid"><label class="field">原指令运行<select name="baseline_run_id"><option value="">选择</option>${renderRunOptions(experiment.baseline_run_id)}</select></label><label class="field">改写后运行<select name="compared_run_id"><option value="">选择</option>${renderRunOptions(experiment.compared_run_id)}</select></label></div><button class="button secondary small">关联实际结果</button></form><p class="muted">${escapeHtml(experiment.conclusion || '待关联评测，不预填提升效果。')}</p></div>`;
+  }
+
+  function renderPeExperimentPrompt(experiment) {
+    const prompt = experiment.prompt_for_generation || experiment.prompt_full || formatPeSections(experiment.prompt_sections);
+    const record = experiment.prompt_for_generation ? `<details class="pe-experiment-detail"><summary>查看完整记录（含英文备查）</summary><pre>${escapeHtml(experiment.prompt_full)}</pre></details>` : '';
+    return `<details class="pe-experiment-detail"><summary>查看保存的出图提示词</summary><pre>${escapeHtml(prompt)}</pre></details>${record}`;
   }
 
   function renderRunOptions(selected) {
@@ -1023,7 +1054,7 @@
   function savePeExperiment() {
     if (!requireCurrentPeResult()) return;
     const context = state.pe.lastContext;
-    const artifact = { prompt_full: getPeOutputText(), engine_version: context?.version || state.pe.resultVersion, rules_version: context?.rulesVersion || null, constraints: context?.result.constraints || '', negatives: context ? [...context.result.negatives] : [], params: context ? structuredClone(context.params) : null, category: context?.category || state.pe.category, context: context ? structuredClone(context) : null, input_snapshot: { ...state.pe.resultSnapshot } };
+    const artifact = { prompt_full: getPeOutputText(), prompt_for_generation: getPePositiveText(), output_profile: 'chinese_prompt', engine_version: context?.version || state.pe.resultVersion, rules_version: context?.rulesVersion || null, constraints: context?.result.constraints || '', negatives: context ? [...context.result.negatives] : [], params: context ? structuredClone(context.params) : null, category: context?.category || state.pe.category, context: context ? structuredClone(context) : null, input_snapshot: { ...state.pe.resultSnapshot } };
     const experiment = createPromptExperiment({ experimentId: crypto.randomUUID(), runId: getActiveRun().run_id, sampleId: getSamples()[state.currentIndex]?.sample_id, version: state.pe.resultVersion, raw: state.pe.resultSnapshot.raw, result: state.pe.result, createdAt: new Date().toISOString(), artifact });
     const workspace = { ...state.workspace, experiments: [...state.workspace.experiments, experiment] };
     if (!storageAdapter.write(STORAGE_KEYS.workspace, workspace)) { toast('实验未能保存，请先复制提示词。'); return; }
@@ -1040,7 +1071,7 @@
     if (conditions.some(value => value == null || /未记录|待补充|未知/.test(String(value)))) { toast('生成条件仍有未记录项，补全后再比较 PE 效果。'); return; }
     const experiment = state.workspace.experiments.find(item => item.experiment_id === form.dataset.experimentId);
     const normalizePrompt = text => text.replace(/\s+/g, '');
-    const expanded = experiment.prompt_full || formatPeSections(experiment.prompt_sections);
+    const expanded = experiment.prompt_for_generation || experiment.prompt_full || formatPeSections(experiment.prompt_sections);
     const oldReviews = state.reviews.filter(review => review.run_id === before); const newReviews = state.reviews.filter(review => review.run_id === after);
     const pairs = oldReviews.flatMap(review => {
       const newer = newReviews.find(item => item.sample_id === review.sample_id);
