@@ -8,6 +8,7 @@
   <title>评测工作台 · 电商生图</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231565C0'/%3E%3Cpath d='m8 17 5 5 11-12' fill='none' stroke='white' stroke-width='3'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css?v=20261030-task2">
+  <link rel="stylesheet" href="workflow.css?v=20261030-workflow1">
 </head>
 <body>
   <svg aria-hidden="true" width="0" height="0" style="position:absolute"><defs>
@@ -32,6 +33,7 @@
             <a class="nav-link" href="#/dashboard" data-route="dashboard"><svg class="nav-icon" aria-hidden="true"><use href="#i-dashboard"/></svg>工作台首页</a>
             <a class="nav-link" href="#/setup" data-route="setup"><svg class="nav-icon" aria-hidden="true"><use href="#i-check"/></svg>评测准备</a>
             <a class="nav-link" href="#/task" data-route="task"><svg class="nav-icon" aria-hidden="true"><use href="#i-task"/></svg>评测任务<span class="nav-badge" id="task-badge">3</span></a>
+            <a class="nav-link" href="#/automation" data-route="automation"><svg class="nav-icon" aria-hidden="true"><use href="#i-report"/></svg>自动评测</a>
             <a class="nav-link" href="#/review" data-route="review"><svg class="nav-icon" aria-hidden="true"><use href="#i-review"/></svg>评分复核<span class="nav-badge" id="review-badge">12</span></a>
             <a class="nav-link" href="#/calibration" data-route="calibration"><svg class="nav-icon" aria-hidden="true"><use href="#i-check"/></svg>分歧裁决</a>
             <a class="nav-link" href="#/report" data-route="report"><svg class="nav-icon" aria-hidden="true"><use href="#i-report"/></svg>评测报告</a>
@@ -54,6 +56,7 @@
         <section id="page-dashboard" data-page="dashboard" aria-label="工作台首页"></section>
         <section id="page-setup" data-page="setup" aria-label="评测准备" hidden></section>
         <section id="page-task" data-page="task" aria-label="评测任务" hidden></section>
+        <section id="page-automation" data-page="automation" aria-label="自动评测" hidden></section>
         <section id="page-review" data-page="review" aria-label="评分复核" hidden></section>
         <section id="page-calibration" data-page="calibration" aria-label="分歧裁决" hidden></section>
         <section id="page-pe" data-page="pe" aria-label="PE 优化" hidden></section>
@@ -74,6 +77,8 @@
   <script src="pe-rules.js?v=20261030-task2"></script>
   <script src="pe-engine.js?v=20261030-task2"></script>
   <script src="task-engine.js?v=20261030-task2"></script>
-  <script src="app.js?v=20261030-task2"></script>
+  <script src="workflow-engine.js?v=20261030-workflow1"></script>
+  <script src="workflow-view.js?v=20261030-workflow1"></script>
+  <script src="app.js?v=20261030-workflow1"></script>
 </body>
 </html>

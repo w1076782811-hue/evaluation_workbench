@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const SCORE_LABELS = ['不可用', '需修', '可用'];
-  const ROUTE_NAMES = { dashboard: '工作台首页', setup: '评测准备', task: '评测任务', review: '评分复核', calibration: '分歧裁决', report: '评测报告', cases: '案例与改进', pe: 'PE 优化' };
+  const ROUTE_NAMES = { dashboard: '工作台首页', setup: '评测准备', task: '评测任务', automation: '自动评测', review: '评分复核', calibration: '分歧裁决', report: '评测报告', cases: '案例与改进', pe: 'PE 优化' };
   const POSITIONS = ['左上', '中上', '右上', '左中', '中', '右中', '左下', '中下', '右下'];
   const PE_FIELDS = { subject: '主体', structure: '结构', material: '材质', environment: '环境', lighting: '光照', composition: '构图' };
   const PE_EXAMPLES = ['来个蒸锅图，高级一点的', '无线耳机白底主图，要干净、有质感', '护肤精华放在梳妆台上，温馨一点'];
@@ -181,7 +181,7 @@
     pe: normalizePeDraft(storageAdapter.read(STORAGE_KEYS.pe, null)), peUnknown: storageAdapter.read(STORAGE_KEYS.peUnknown, {}),
     charts: [], route: '', toastTimer: null, filter: '', queue: { category: '', status: 'all', search: '' },
     reportSource: 'human', selectedCalibration: '', compareRunId: '', imageDb: null, imageUrls: {}, imageUpload: null, timer: null, pendingImportErrors: null,
-    showArchivedTasks: false, pendingTaskDialog: null
+    showArchivedTasks: false, pendingTaskDialog: null, automationFilter: { status: 'all', search: '' }
   };
   state.reviews = state.reviews.map(review => ({ ...review, run_id: review.run_id || RUN_METADATA[0].run_id, revision: review.revision || 1, standard_version: review.standard_version || 'rubric-v1.1', elapsed_ms: review.elapsed_ms || 0, defects: (review.defects || []).map(defect => ({ ...defect, source: 'human', confirmed: true })) }));
   Object.keys(state.drafts).filter(key => !key.includes(':')).forEach(key => { state.drafts[`${RUN_METADATA[0].run_id}:${key}`] = state.drafts[key]; delete state.drafts[key]; });
@@ -223,7 +223,104 @@
 
   function writeTaskPage(route, markup) {
     const context = route === 'setup' ? renderSuiteCoverage() : renderTaskContext() + renderTaskGuidance(route);
-    document.querySelector(`#page-${route}`).innerHTML = context + markup;
+    const progress = route === 'pe' ? '' : window.WORKFLOW_VIEW.renderProgress(getWorkflowSnapshot());
+    document.querySelector(`#page-${route}`).innerHTML = context + progress + markup;
+  }
+
+  function getWorkflowSnapshot(task = getActiveTask()) {
+    const run = task ? state.workspace.runs.find(item => item.run_id === task.run_id) : getActiveRun();
+    const samples = task ? getTaskSamples(task) : getSamplesForRun(run.run_id);
+    const sampleIds = new Set(samples.map(sample => sample.sample_id));
+    const reviews = state.reviews.filter(review => review.run_id === run.run_id && sampleIds.has(review.sample_id));
+    const reviewStates = reviews.map(review => ({
+      sample_id: review.sample_id, pending_adjudication: needsAdjudication(review), adjudicated: Boolean(getAdjudication(review)),
+      decision: getOutcome(getSamplesForRun(run.run_id).find(sample => sample.sample_id === review.sample_id), {
+        scores: review.human_scores, defects: review.defects, rules: review.rules_snapshot, adjudication: getAdjudication(review)
+      }).status
+    }));
+    return window.WORKFLOW_ENGINE.getSnapshot({ run, samples, reviews, reviewStates, inputStates: getWorkflowInputs({ run, samples }) });
+  }
+
+  function getWorkflowInputs({ run, samples }) {
+    const allSamples = getSamplesForRun(run.run_id);
+    return samples.map(sample => {
+      const group = allSamples.filter(item => sample.group_id && item.group_id === sample.group_id);
+      const hasGroup = !sample.applicable_dims.includes('L6') || group.length >= 2 && group.every(item => getSampleImageUrl(item, true, run));
+      const reference = getSampleImageUrl(sample, false, run); const generated = getSampleImageUrl(sample, true, run);
+      return { sample_id: sample.sample_id, reference_ready: Boolean(reference && sample.prompt_raw), generated_ready: Boolean(generated),
+        placeholder: [reference, generated].some(url => url.startsWith('assets/')), group_ready: hasGroup };
+    });
+  }
+
+  function renderAutomation() {
+    const snapshot = getWorkflowSnapshot();
+    writeTaskPage('automation', heading({ eyebrow: 'MACHINE ASSESSMENT / 自动评测', title: '机器评了哪些，哪些还需要人看',
+      description: '先看逐项状态，再决定是否查看机器分数。当前仍使用全量人工复核，按项补评和独立抽检将在后续步骤接入。',
+      actions: '<a class="button secondary" href="#/review">进入当前全量人审</a>' }) + window.WORKFLOW_VIEW.renderAutomation({
+      snapshot, dimensions: DIMENSIONS, filter: state.automationFilter, selectedSampleId: '',
+      exposedSampleIds: getViewSamples().filter(sample => hasMachineExposure(sample.sample_id)).map(sample => sample.sample_id)
+    }));
+  }
+
+  function hasMachineExposure(sampleId, runId = getActiveRun().run_id) {
+    const run = state.workspace.runs.find(item => item.run_id === runId);
+    const sourceIds = [...new Set([runId, run?.asset_source_run_id].filter(Boolean))];
+    return sourceIds.some(id => state.workspace.workflow?.machine_exposures?.[JSON.stringify([id, sampleId])] ||
+      state.drafts[`${id}:${sampleId}`]?.exposed || state.reviews.some(review => review.run_id === id && review.sample_id === sampleId));
+  }
+
+  function syncDraftExposure(draft, sampleId) {
+    if (!draft.saved && !draft.revealed && hasMachineExposure(sampleId)) {
+      draft.exposed = true; draft.eligible = false;
+    }
+    return draft;
+  }
+
+  function recordMachineExposure(entries) {
+    const workflow = state.workspace.workflow || { schema_version: 1, machine_exposures: {} };
+    const exposures = { ...workflow.machine_exposures };
+    const additions = entries.filter(entry => !exposures[JSON.stringify([entry.run_id, entry.sample_id])]);
+    if (!additions.length) return true;
+    additions.forEach(entry => { exposures[JSON.stringify([entry.run_id, entry.sample_id])] = { ...entry, exposed_at: new Date().toISOString() }; });
+    const workspace = { ...state.workspace, workflow: { ...workflow, machine_exposures: exposures } };
+    if (!storageAdapter.write(STORAGE_KEYS.workspace, workspace)) { toast('未能保存答案查看记录，暂不展示机器答案。'); return false; }
+    state.workspace = workspace;
+    return true;
+  }
+
+  function recordReportExposure() {
+    const run = getActiveRun(); const samples = getViewSamples();
+    const entries = state.reportSource === 'machine' ? samples.map(sample => ({ run_id: run.run_id, sample_id: sample.sample_id, source: 'machine_report' })) : [];
+    const comparison = getRunComparisons();
+    if (comparison.baseline) {
+      const oldSamples = getSamplesForRun(comparison.baseline.run_id);
+      samples.forEach(sample => {
+        const old = oldSamples.find(item => item.sample_id === sample.sample_id && item.prompt_raw === sample.prompt_raw);
+        if (!old || !sample.applicable_dims.some(code => old.applicable_dims.includes(code) && [0, 1, 2].includes(sample.machine_scores[code]) && [0, 1, 2].includes(old.machine_scores[code]))) return;
+        [run.run_id, comparison.baseline.run_id].forEach(runId => entries.push({ run_id: runId, sample_id: sample.sample_id, source: 'machine_comparison' }));
+      });
+    }
+    return recordMachineExposure(entries);
+  }
+
+  function inspectMachine(sampleId) {
+    if (!getViewSamples().some(sample => sample.sample_id === sampleId)) return;
+    if (hasMachineExposure(sampleId)) { showMachineDetail(sampleId); return; }
+    showTaskDialog(`<h2>查看 ${escapeHtml(sampleId)} 的机器答案</h2><p>将展示机器分数、缺陷和判断证据。看过后，尚未锁定的人工初判不再计入独立盲判一致率；重新打开或刷新不会恢复资格。</p><p class="muted">已锁定的独立初判和已保存的历史一致率保持原记录。当前为本地登记，不验证评审者身份。</p><button class="button primary" data-action="confirm-machine-exposure" data-id="${escapeHtml(sampleId)}" data-run-id="${escapeHtml(getActiveRun().run_id)}">记录查看并展示机器答案</button>`);
+  }
+
+  function confirmMachineExposure(button) {
+    if (button.dataset.runId !== getActiveRun().run_id || !getViewSamples().some(sample => sample.sample_id === button.dataset.id)) return;
+    if (!recordMachineExposure([{ run_id: getActiveRun().run_id, sample_id: button.dataset.id, source: 'automation_detail' }])) return;
+    renderAutomation(); showMachineDetail(button.dataset.id);
+  }
+
+  function showMachineDetail(sampleId) {
+    const sample = getViewSamples().find(item => item.sample_id === sampleId);
+    if (!sample) return;
+    const snapshot = getWorkflowSnapshot();
+    const items = snapshot.items.filter(item => item.sample_id === sampleId);
+    showTaskDialog(`<h2>${escapeHtml(sampleId)} · 机器逐项结果</h2><p class="notice compact">${escapeHtml(snapshot.mode.description)}</p><p>以下是现有结果，不代表已满足自动采用条件；当前仍需完成全部适用维度的人工评分。</p><div class="table-wrap"><table class="data-table"><thead><tr><th>维度</th><th>机器分数</th><th>状态与后续处理</th></tr></thead><tbody>${items.map(item => `<tr><td>${escapeHtml(item.dimension)}</td><td>${item.machine_score === null ? '—' : escapeHtml(item.machine_score)}</td><td>${escapeHtml(item.reason)}</td></tr>`).join('')}</tbody></table></div><p class="muted">未提供逐维度实测置信度、执行器版本与执行时间时，不从整题置信度推算或补写。查看答案已留痕；未提交的独立资格按实际曝光判定。</p>${renderMachineDefects(sample)}<button class="button secondary" data-action="workflow-review" data-id="${escapeHtml(sampleId)}">前往本题全量人审</button>`);
   }
 
   function getStatistics() {
@@ -238,14 +335,14 @@
   function getDraft() {
     const sample = getSamples()[state.currentIndex];
     const key = getReviewKey(sample.sample_id);
-    if (state.drafts[key]) return state.drafts[key];
+    if (state.drafts[key]) return syncDraftExposure(state.drafts[key], sample.sample_id);
     const saved = findReview(sample.sample_id);
     state.drafts[key] = saved ? {
       scores: { ...saved.human_scores }, blindMode: saved.blind_mode, revealed: saved.blind_mode, exposed: true,
       eligible: Boolean(saved.agreement), saved: true, defects: saved.defects || [], note: saved.note || '',
       position: '中', code: DEFECT_CODES[0].code, severity: 'P2', elapsedMs: saved.elapsed_ms || 0, marker: null
     } : { scores: {}, blindMode: true, revealed: false, exposed: false, eligible: true, saved: false, defects: [], note: '', position: '中', code: DEFECT_CODES[0].code, severity: 'P2', elapsedMs: 0, marker: null };
-    return state.drafts[key];
+    return syncDraftExposure(state.drafts[key], sample.sample_id);
   }
 
   function persistDraft() { return storageAdapter.write(STORAGE_KEYS.drafts, state.drafts); }
@@ -283,8 +380,8 @@
 
   function renderTasks() {
     const tasks = state.workspace.tasks.filter(task => state.showArchivedTasks || !task.archived);
-    document.querySelector('#page-task').innerHTML = heading({ eyebrow: 'TASKS / 评测任务', title: '选一套题，开始这次评测', description: '任务管理负责人和范围；批次保存样本、模型与评分标准。同一批次的重叠任务共享已保存评分。', actions: '<button class="button secondary" data-action="import-dataset">导入新批次</button><button class="button primary" data-action="create-task">新建任务</button>' }) +
-      `<article class="card"><div class="card-heading"><h2>${tasks.length} 个${state.showArchivedTasks ? '全部' : '未归档'}任务</h2><button class="button ghost small" data-action="toggle-archived">${state.showArchivedTasks ? '隐藏已归档' : '查看已归档'}</button></div><div class="table-wrap"><table class="data-table"><thead><tr><th>任务 / 批次</th><th>评测范围</th><th>进度</th><th>状态</th><th>负责人</th><th>操作</th></tr></thead><tbody>${tasks.map(renderTaskRow).join('') || '<tr><td colspan="6" class="empty-state">没有未归档任务。可新建任务，或查看已归档记录。</td></tr>'}</tbody></table></div></article>${renderTaskContext()}`;
+    writeTaskPage('task', heading({ eyebrow: 'TASKS / 评测任务', title: '选一套题，开始这次评测', description: '任务管理负责人和范围；批次保存样本、模型与评分标准。同一批次的重叠任务共享已保存评分。', actions: '<button class="button secondary" data-action="import-dataset">导入新批次</button><button class="button primary" data-action="create-task">新建任务</button>' }) +
+      `<article class="card"><div class="card-heading"><h2>${tasks.length} 个${state.showArchivedTasks ? '全部' : '未归档'}任务</h2><button class="button ghost small" data-action="toggle-archived">${state.showArchivedTasks ? '隐藏已归档' : '查看已归档'}</button></div><div class="table-wrap"><table class="data-table"><thead><tr><th>任务 / 批次</th><th>评测范围</th><th>进度</th><th>状态</th><th>负责人</th><th>操作</th></tr></thead><tbody>${tasks.map(renderTaskRow).join('') || '<tr><td colspan="6" class="empty-state">没有未归档任务。可新建任务，或查看已归档记录。</td></tr>'}</tbody></table></div></article>`);
   }
 
   function initializeTasks() {
@@ -343,7 +440,7 @@
   function openTaskDetail(taskId) {
     const task = findTask(taskId); if (!task) return;
     const progress = getTaskProgress(task); const run = state.workspace.runs.find(item => item.run_id === task.run_id);
-    showTaskDialog(`<h2>${escapeHtml(task.name)}</h2><p class="muted">${escapeHtml(task.task_id)} · ${escapeHtml(task.run_id)} · 模型 ${escapeHtml(run.model_version)}</p>${renderTaskProgress(progress)}<p>${taskStatusLabel(progress.status)}${task.archived ? ' · 已归档' : ''} · 负责人 ${escapeHtml(task.assignee || '未分配')}</p><p>开始：${task.started_at ? formatDate(task.started_at) : '尚未开始'} · 完成：${task.finished_at ? formatDate(task.finished_at) : '尚未评完'}</p><p>已记录复核用时 ${formatDuration(progress.elapsed_ms)}；${progress.estimated_remaining_ms === null ? '暂无足够计时记录估算剩余时间' : `按已有计时均值估算剩余 ${formatDuration(progress.estimated_remaining_ms)}`}</p><p>${escapeHtml(task.note)}</p>${progress.total ? '' : '<p class="notice">该范围没有样本，请编辑范围，或导入新批次后为其建立任务。</p>'}<h3>分品类进度</h3>${progress.by_category.map(row => `<p>${escapeHtml(row.category)}</p>${renderTaskProgress(row)}`).join('')}<form id="task-owner-form" data-task-id="${escapeHtml(task.task_id)}"><label class="field">负责人<input name="assignee" value="${escapeHtml(task.assignee)}"></label><button class="button secondary small">保存负责人</button></form><div class="task-row-actions">${renderTaskPrimary(task, progress)}${!task.archived && progress.status === 'running' ? `<button class="button secondary" data-action="pause-task" data-id="${escapeHtml(task.task_id)}">暂停任务</button>` : ''}<button class="button secondary" data-action="edit-task" data-id="${escapeHtml(task.task_id)}">编辑范围与说明</button><button class="button secondary" data-action="duplicate-task" data-id="${escapeHtml(task.task_id)}">同样范围重新复核</button><button class="button secondary" data-action="export-task" data-id="${escapeHtml(task.task_id)}">导出本任务评分</button><button class="button ghost" data-action="archive-task" data-id="${escapeHtml(task.task_id)}">${task.archived ? '恢复任务' : '归档任务'}</button></div>`);
+    showTaskDialog(`<h2>${escapeHtml(task.name)}</h2><p class="muted">${escapeHtml(task.task_id)} · ${escapeHtml(task.run_id)} · 模型 ${escapeHtml(run.model_version)}</p>${renderTaskProgress(progress)}${window.WORKFLOW_VIEW.renderProgress(getWorkflowSnapshot(task))}<p>${taskStatusLabel(progress.status)}${task.archived ? ' · 已归档' : ''} · 负责人 ${escapeHtml(task.assignee || '未分配')}</p><p>开始：${task.started_at ? formatDate(task.started_at) : '尚未开始'} · 完成：${task.finished_at ? formatDate(task.finished_at) : '尚未评完'}</p><p>已记录复核用时 ${formatDuration(progress.elapsed_ms)}；${progress.estimated_remaining_ms === null ? '暂无足够计时记录估算剩余时间' : `按已有计时均值估算剩余 ${formatDuration(progress.estimated_remaining_ms)}`}</p><p>${escapeHtml(task.note)}</p>${progress.total ? '' : '<p class="notice">该范围没有样本，请编辑范围，或导入新批次后为其建立任务。</p>'}<h3>分品类进度</h3>${progress.by_category.map(row => `<p>${escapeHtml(row.category)}</p>${renderTaskProgress(row)}`).join('')}<form id="task-owner-form" data-task-id="${escapeHtml(task.task_id)}"><label class="field">负责人<input name="assignee" value="${escapeHtml(task.assignee)}"></label><button class="button secondary small">保存负责人</button></form><div class="task-row-actions">${renderTaskPrimary(task, progress)}${!task.archived && progress.status === 'running' ? `<button class="button secondary" data-action="pause-task" data-id="${escapeHtml(task.task_id)}">暂停任务</button>` : ''}<button class="button secondary" data-action="edit-task" data-id="${escapeHtml(task.task_id)}">编辑范围与说明</button><button class="button secondary" data-action="duplicate-task" data-id="${escapeHtml(task.task_id)}">同样范围重新复核</button><button class="button secondary" data-action="export-task" data-id="${escapeHtml(task.task_id)}">导出本任务评分</button><button class="button ghost" data-action="archive-task" data-id="${escapeHtml(task.task_id)}">${task.archived ? '恢复任务' : '归档任务'}</button></div>`);
   }
 
   function openTaskForm(taskId = null) {
@@ -487,9 +584,9 @@
     return `<article class="card image-card"><div class="card-heading"><h2>${generated ? '生成图' : '参考图'}</h2><span class="pill gray">${generated ? escapeHtml(getActiveRun().model_version) : '商品原图'}</span></div><div class="image-stage" data-image-key="${escapeHtml(key)}" ${generated ? 'data-mark-stage="true"' : ''}>${imageUrl ? `<img class="real-image" src="${imageUrl}" alt="${escapeHtml(sample.sample_id)} ${generated ? '生成图' : '参考图'}">` : `<div class="image-placeholder"><div class="placeholder-frame">${icon('image')}<span class="placeholder-label">${escapeHtml(sample.sample_id)}</span><span>等待关联本地图片</span></div></div>`}${generated && draft.marker ? `<span class="image-mark" style="left:${draft.marker.x * 100}%;top:${draft.marker.y * 100}%">缺陷位置</span>` : ''}</div><div class="image-tools"><button class="button ghost small" data-action="upload-image" data-kind="${generated ? 'generated' : 'reference'}">${imageUrl ? '更换图片' : '关联本地图片'}</button><button class="button ghost small" data-action="zoom-image" data-key="${escapeHtml(key)}" ${imageUrl ? '' : 'disabled'}>放大查看</button></div><div class="image-meta mono">${escapeHtml(filename)}</div>${generated ? `<h3>评测上下文</h3><p class="muted">${escapeHtml(sample.evaluation_context || '未提供上下文')}</p><span class="pill gray">${sample.evaluation_mode === 'single' ? '单图评测' : '同组对照'}</span><p class="muted">点击生成图可标记缺陷位置，随人工缺陷记录保存。</p>` : `<h3>原始指令</h3><p class="prompt-block">${escapeHtml(sample.prompt_raw)}</p>`}</article>`;
   }
 
-  function getSampleImageUrl(sample, generated) {
-    const kind = generated ? 'generated' : 'reference'; const run = getActiveRun();
-    const local = state.imageUrls[`${getReviewKey(sample.sample_id)}:${kind}`];
+  function getSampleImageUrl(sample, generated, run = getActiveRun()) {
+    const kind = generated ? 'generated' : 'reference';
+    const local = state.imageUrls[`${run.run_id}:${sample.sample_id}:${kind}`];
     if (local) return local;
     if (run.asset_source_run_id && state.imageUrls[`${run.asset_source_run_id}:${sample.sample_id}:${kind}`]) return state.imageUrls[`${run.asset_source_run_id}:${sample.sample_id}:${kind}`];
     const suite = (window.EVAL_SUITES || []).find(item => item.task.run_id === (run.asset_source_run_id || run.run_id));
@@ -561,6 +658,7 @@
     const sample = getSamples()[state.currentIndex];
     const draft = getDraft();
     if (!sample.applicable_dims.every(code => Number.isInteger(draft.scores[code]))) return;
+    if (!recordMachineExposure([{ run_id: getActiveRun().run_id, sample_id: sample.sample_id, source: 'review_reveal' }])) return;
     draft.revealed = true; draft.exposed = true;
     persistDraft(); renderReview();
   }
@@ -568,6 +666,7 @@
   function switchBlindMode(checked) {
     const draft = getDraft();
     if (draft.saved || draft.revealed) return;
+    if (!checked && !recordMachineExposure([{ run_id: getActiveRun().run_id, sample_id: getSamples()[state.currentIndex].sample_id, source: 'review_unblind' }])) { renderReview(); return; }
     draft.blindMode = checked;
     if (!checked) { draft.exposed = true; draft.eligible = false; }
     persistDraft(); renderReview();
@@ -886,11 +985,12 @@
   }
 
   function renderReport() {
+    if (!recordReportExposure()) { state.reportSource = 'human'; state.compareRunId = ''; }
     const report = getReport();
     const records = getReportRecords();
     const tabs = { human: '人工初判', final: '最终确认', machine: '机器初评' };
     const averages = report.dimensions;
-    writeTaskPage('report', heading({ eyebrow: 'EVALUATION REPORT / 评测报告', title: '每个结论，都能找到它的样本', description: '切换机器初评、人工初判与最终确认口径；没有人审的样本不会补成满分。', actions: '<button class="button primary" data-action="export">导出报告 JSON</button>' }) + renderRunSummary() + `<div class="source-tabs">${Object.entries(tabs).map(([source, label]) => `<button class="source-tab ${state.reportSource === source ? 'active' : ''}" data-action="report-source" data-source="${source}">${label}</button>`).join('')}</div><div class="notice">当前口径：${tabs[state.reportSource]}，包含 ${records.length}/${getViewSamples().length} 条。${state.reportSource === 'final' ? '分歧未裁决、暂缓放行的记录不当作最终通过。' : state.reportSource === 'human' ? '这里展示人审初判，不代表分歧已解决。' : '机器结果可能有误，执行失败按缺结果展示。'} 缺陷率同时标出条数与分母。</div>
+    writeTaskPage('report', heading({ eyebrow: 'EVALUATION REPORT / 评测报告', title: '每个结论，都能找到它的样本', description: '切换机器初评、人工初判与最终确认口径；查看机器初评会记录当前范围的答案曝光，未锁定的判断不再计入独立一致率。', actions: '<button class="button primary" data-action="export">导出报告 JSON</button>' }) + renderRunSummary() + `<div class="source-tabs">${Object.entries(tabs).map(([source, label]) => `<button class="source-tab ${state.reportSource === source ? 'active' : ''}" data-action="report-source" data-source="${source}">${label}</button>`).join('')}</div><div class="notice">当前口径：${tabs[state.reportSource]}，包含 ${records.length}/${getViewSamples().length} 条。${state.reportSource === 'final' ? '分歧未裁决、暂缓放行的记录不当作最终通过。' : state.reportSource === 'human' ? '这里展示人审初判，不代表分歧已解决。' : '机器结果可能有误，执行失败按缺结果展示。'} 缺陷率同时标出条数与分母。</div>
       <div class="kpi-grid">${metricCard('可用', report.outcomes.usable, records.length ? percent(report.outcomes.usable / records.length) : '暂无结果', 'green')}${metricCard('需修', report.outcomes.repair, records.length ? percent(report.outcomes.repair / records.length) : '暂无结果', 'amber')}${metricCard('不可用', report.outcomes.discard, '不能被高平均分掩盖', 'red')}${metricCard('暂缓 / 缺结果', report.outcomes.blocked + report.outcomes.pending, '先处理阻断，再决定是否放行', 'amber')}</div>
       <article class="card"><div class="card-heading"><h2>当前范围八维得分</h2><span class="pill gray">${tabs[state.reportSource]}</span></div><div class="table-wrap"><table class="data-table"><thead><tr><th>维度</th><th>权重</th><th>平均分 / 2</th><th>有效 n（不含阻断）</th></tr></thead><tbody>${DIMENSIONS.map(dimension => `<tr><td>${dimension.code} ${dimension.name}</td><td>${dimension.weight}%</td><td>${averages[dimension.code].score === null ? '—' : averages[dimension.code].score.toFixed(2)}</td><td>${averages[dimension.code].count}</td></tr>`).join('')}</tbody></table></div></article><p class="muted">暂缓放行的样本单独统计，不参与上表均分；它们仍保留在缺陷率和阻断统计中。</p>${renderSuiteResults()}${renderComparison()}
       <article class="card"><div class="card-heading"><h2>缺陷率热力图 · 全部编码</h2><span class="pill amber">含合规与阻断问题</span></div><div class="table-wrap"><table class="data-table heatmap"><thead><tr><th>品类 / 样本数</th>${DEFECT_CODES.map(defect => `<th>${defect.code}<small>${defect.name}</small></th>`).join('')}</tr></thead><tbody>${report.heatmap.map(row => `<tr><th>${escapeHtml(row.category)}<small>n=${row.sample_count}</small></th>${row.cells.map(cell => `<td><button class="heat-cell report-drillbutton" data-level="${cell.rate == null || cell.rate === 0 ? 0 : Math.min(4, Math.ceil(cell.rate * 4))}" data-action="drill-defect" data-category="${escapeHtml(row.category)}" data-code="${cell.code}" ${cell.defective_samples ? '' : 'disabled'}>${cell.rate === null ? '—' : percent(cell.rate)}<small>${cell.defective_samples}/${cell.total_samples}</small></button></td>`).join('')}</tr>`).join('')}</tbody></table></div><p class="muted">分母为该口径下该品类的已纳入样本。每个样本的同一编码只计一次。这里衡量场景发生率；不等于只在该子项适用样本中的错误率。</p></article><article class="card"><h2>逐条结果与证据</h2><div class="table-wrap"><table class="data-table"><thead><tr><th>样本</th><th>结论</th><th>依据 / 状态</th><th>操作</th></tr></thead><tbody>${records.length ? records.map(record => `<tr><td class="mono">${escapeHtml(record.sample.sample_id)}</td><td>${statusPill(record.outcome.status, record.outcome.label)}</td><td>${record.outcome.reasons.map(escapeHtml).join('；')}${record.review && needsAdjudication(record.review) ? ' · 初判存在分歧，待裁决' : ''}</td><td><button class="button ghost small" data-action="jump-id" data-id="${escapeHtml(record.sample.sample_id)}">查看样本</button></td></tr>`).join('') : '<tr><td colspan="4" class="empty-state">当前口径暂无记录。保存评分或完成裁决后，这里会自动更新。</td></tr>'}</tbody></table></div></article>${renderReliability()}${renderEfficiency()}<div id="export-feedback" class="notice" hidden></div>`);
@@ -933,8 +1033,8 @@
     document.querySelector('#breadcrumb-title').textContent = ROUTE_NAMES[route];
     document.querySelector('#workspace-area').textContent = route === 'pe' ? '生产提效' : '评测工作台';
     document.title = `${ROUTE_NAMES[route]} · 评测工作台`;
-    ({ dashboard: renderDashboard, setup: renderSetup, task: renderTasks, review: renderReview, calibration: renderCalibration, report: renderReport, cases: renderCases, pe: renderPe })[route]();
-    if (getActiveTask() && ['review', 'report', 'calibration'].includes(route)) document.querySelector('#breadcrumb-title').textContent = `${ROUTE_NAMES[route]} · ${getActiveTask().name}`;
+    ({ dashboard: renderDashboard, setup: renderSetup, task: renderTasks, automation: renderAutomation, review: renderReview, calibration: renderCalibration, report: renderReport, cases: renderCases, pe: renderPe })[route]();
+    if (getActiveTask() && ['review', 'report', 'calibration', 'automation'].includes(route)) document.querySelector('#breadcrumb-title').textContent = `${ROUTE_NAMES[route]} · ${getActiveTask().name}`;
     if (route === 'setup' && state.pendingImportErrors) { const errors = state.pendingImportErrors; state.pendingImportErrors = null; showImportErrors(errors); }
     if (route === 'task' && state.pendingTaskDialog) { const taskId = state.pendingTaskDialog; state.pendingTaskDialog = null; openTaskDetail(taskId); }
     if (route === 'dashboard' && document.querySelector('#radar-chart')) renderCharts();
@@ -954,6 +1054,8 @@
       'start-task': () => startTask(button.dataset.id), 'pause-task': () => pauseTask(button.dataset.id), 'task-report': () => showTaskReport(button.dataset.id),
       'archive-task': () => archiveTask(button.dataset.id), 'duplicate-task': () => duplicateTask(button.dataset.id), 'export-task': () => exportTask(button.dataset.id),
       'leave-task': leaveTask, 'toggle-archived': () => { state.showArchivedTasks = !state.showArchivedTasks; renderTasks(); },
+      'inspect-machine': () => inspectMachine(button.dataset.id), 'confirm-machine-exposure': () => confirmMachineExposure(button),
+      'workflow-review': () => { document.querySelector('#task-dialog').close(); jumpToSample(button.dataset.id); },
       'reset-queue': () => { state.queue = { category: '', status: 'all', search: '' }; renderReview(); },
       score: () => setScore(button), reveal: revealScores, save: saveReview, previous: () => moveSample(-1), next: () => moveSample(1), rejudge: rejudgeSample, timer: toggleTimer,
       position: () => { getDraft().position = button.dataset.value; persistDraft(); renderReview(); }, severity: () => { getDraft().severity = button.dataset.value; persistDraft(); renderReview(); },
@@ -979,7 +1081,11 @@
 
   function bindEvents() {
     document.querySelector('.skip-link').addEventListener('click', event => { event.preventDefault(); document.querySelector('#main-content').focus(); });
-    document.addEventListener('click', event => { const button = event.target.closest('[data-action]'); if (button && !button.disabled) handleAction(button); else markImage(event); });
+    document.addEventListener('click', event => {
+      if (event.target.closest('#task-dialog a[href^="#/"]')) document.querySelector('#task-dialog').close();
+      const button = event.target.closest('[data-action]');
+      if (button && !button.disabled) handleAction(button); else markImage(event);
+    });
     document.addEventListener('input', handleInput);
     document.addEventListener('change', handleChange);
     document.addEventListener('submit', event => {
@@ -1192,7 +1298,7 @@
     const candidates = state.workspace.runs.filter(run => run.run_id !== current.run_id && getSamplesForRun(run.run_id).length);
     const comparison = getRunComparisons();
     const snapshots = VERSION_STATS.slice(-2);
-    return `<article class="card"><div class="card-heading"><h2>同题版本对比 · 机器原始结果</h2><label>对照批次<select id="compare-run"><option value="">选择对照批次</option>${candidates.map(run => `<option value="${escapeHtml(run.run_id)}" ${state.compareRunId === run.run_id ? 'selected' : ''}>${escapeHtml(run.run_id)} · ${escapeHtml(run.model_version)}</option>`).join('')}</select></label></div>${comparison.baseline ? `<p class="muted">同一评测集与规则版本，按样本编号和完全相同的原始指令配对，共 ${comparison.shared_count} 条。PE 和生成参数差异仍需人工核对，不自动归因到模型。</p><div class="table-wrap"><table class="data-table"><thead><tr><th>维度</th><th>对照均分</th><th>当前均分</th><th>相对变化</th><th>配对样本</th></tr></thead><tbody>${comparison.rows.map(row => `<tr><td>${row.code} ${row.name}</td><td>${row.previous?.toFixed(2) ?? '—'}</td><td>${row.current?.toFixed(2) ?? '—'}</td><td class="${row.relative_change >= 0 ? 'match' : 'mismatch'}">${formatChange(row.relative_change)}</td><td>${row.count}</td></tr>`).join('')}</tbody></table></div>` : '<p class="notice compact">请选择有逐条结果、评测集版本与评分规则版本一致的批次。条件不符时不输出“模型提升了多少”的结论。</p>'}<p class="muted">变化 =（当前分 − 对照分）÷ 对照分 ×100%。对照为 0 时不计算；它不是准确率变化。</p>${current.source === 'demo' ? `<details><summary>查看原有 v1.3 → v1.4 演示快照（非本地复核结果）</summary><div class="table-wrap"><table class="data-table"><thead><tr><th>维度</th><th>v1.3</th><th>v1.4</th><th>相对变化</th></tr></thead><tbody>${DIMENSIONS.map(dimension => `<tr><td>${dimension.code} ${dimension.name}</td><td>${snapshots[0].scores[dimension.code]}</td><td>${snapshots[1].scores[dimension.code]}</td><td class="match">${formatChange(getRelativeChange(snapshots[0].scores[dimension.code], snapshots[1].scores[dimension.code]))}</td></tr>`).join('')}</tbody></table></div></details>` : ''}</article>`;
+    return `<article class="card"><div class="card-heading"><h2>同题版本对比 · 机器原始结果</h2><p class="muted">选定可比批次后会展示机器答案，并记录相关样本的曝光；尚未锁定的判断不再计入独立一致率。</p><label>对照批次<select id="compare-run"><option value="">选择对照批次</option>${candidates.map(run => `<option value="${escapeHtml(run.run_id)}" ${state.compareRunId === run.run_id ? 'selected' : ''}>${escapeHtml(run.run_id)} · ${escapeHtml(run.model_version)}</option>`).join('')}</select></label></div>${comparison.baseline ? `<p class="muted">同一评测集与规则版本，按样本编号和完全相同的原始指令配对，共 ${comparison.shared_count} 条。PE 和生成参数差异仍需人工核对，不自动归因到模型。</p><div class="table-wrap"><table class="data-table"><thead><tr><th>维度</th><th>对照均分</th><th>当前均分</th><th>相对变化</th><th>配对样本</th></tr></thead><tbody>${comparison.rows.map(row => `<tr><td>${row.code} ${row.name}</td><td>${row.previous?.toFixed(2) ?? '—'}</td><td>${row.current?.toFixed(2) ?? '—'}</td><td class="${row.relative_change >= 0 ? 'match' : 'mismatch'}">${formatChange(row.relative_change)}</td><td>${row.count}</td></tr>`).join('')}</tbody></table></div>` : '<p class="notice compact">请选择有逐条结果、评测集版本与评分规则版本一致的批次。条件不符时不输出“模型提升了多少”的结论。</p>'}<p class="muted">变化 =（当前分 − 对照分）÷ 对照分 ×100%。对照为 0 时不计算；它不是准确率变化。</p>${current.source === 'demo' ? `<details><summary>查看原有 v1.3 → v1.4 演示快照（非本地复核结果）</summary><div class="table-wrap"><table class="data-table"><thead><tr><th>维度</th><th>v1.3</th><th>v1.4</th><th>相对变化</th></tr></thead><tbody>${DIMENSIONS.map(dimension => `<tr><td>${dimension.code} ${dimension.name}</td><td>${snapshots[0].scores[dimension.code]}</td><td>${snapshots[1].scores[dimension.code]}</td><td class="match">${formatChange(getRelativeChange(snapshots[0].scores[dimension.code], snapshots[1].scores[dimension.code]))}</td></tr>`).join('')}</tbody></table></div></details>` : ''}</article>`;
   }
 
   function renderReliability() {
@@ -1326,6 +1432,10 @@
   }
 
   function updateBadges() {
+    const mode = window.WORKFLOW_ENGINE.getSnapshot({ run: getActiveRun() }).mode;
+    const sourceLabels = { demo: '机器结果为预置演示', imported: '机器结果由外部导入', repeat_review: '机器结果复用旧批次' };
+    document.querySelector('.sidebar-footer .pill').textContent = mode.label;
+    document.querySelector('.sidebar-footer p').innerHTML = `数据保存在当前浏览器<br>${sourceLabels[mode.key]}`;
     document.querySelector('#review-badge').textContent = Math.max(0, getViewSamples().length - getReviews().length);
     document.querySelector('#task-badge').textContent = state.workspace.tasks.filter(task => !task.archived).length;
     const badge = document.querySelector('#calibration-badge'); if (badge) badge.textContent = getReviews().filter(needsAdjudication).length;
@@ -1398,6 +1508,7 @@
       Object.values(state.imageUrls).forEach(url => URL.revokeObjectURL(url)); state.imageUrls = {};
       records.forEach(record => { state.imageUrls[record.key] = URL.createObjectURL(record.blob); });
       if (state.route === 'review') renderReview();
+      else if (state.route && state.route !== 'pe') renderRoute();
     } catch (error) { console.warn('本地图片存储未启用', error); toast('本地图片存储不可用，评分数据仍可使用。'); }
   }
 
@@ -1456,6 +1567,11 @@
   }
 
   function handleInput(event) {
+    if (event.target.id === 'automation-search') {
+      const selectionStart = event.target.selectionStart;
+      state.automationFilter.search = event.target.value; renderAutomation();
+      const search = document.querySelector('#automation-search'); search.focus({ preventScroll: true }); search.setSelectionRange(selectionStart, selectionStart);
+    }
     if (event.target.id === 'defect-note') { getDraft().note = event.target.value; persistDraft(); }
     if (event.target.id === 'pe-input') { state.pe.raw = event.target.value; savePeDraft(); refreshPeOutput(); }
     if (event.target.id === 'fuzzy-search') { state.filter = event.target.value; document.querySelector('#fuzzy-body').innerHTML = renderFuzzyRows(); }
@@ -1464,6 +1580,7 @@
   }
 
   function handleChange(event) {
+    if (event.target.id === 'automation-filter') { state.automationFilter.status = event.target.value; renderAutomation(); }
     if (event.target.id === 'pe-category') { state.pe.category = event.target.value; savePeDraft(); refreshPeOutput(); }
     if (event.target.id === 'blind-toggle') switchBlindMode(event.target.checked);
     if (event.target.id === 'defect-code') { getDraft().code = event.target.value; persistDraft(); }
