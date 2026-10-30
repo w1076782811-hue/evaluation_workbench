@@ -1,12 +1,195 @@
 // 数据来源：评测题型数据集设计.md V1.0；以下为用户提供的合成演示题库。
-// 已附带用户提供的编号占位图，仅供流程演示，不是商品实拍或模型生成证据。
+// 配套图片按题号关联；更新示例图与编号占位图分别记录，机器结果仍为演示数据。
 window.EVAL_SUITE_METADATA = {
-  version: 'eval-suites-v1.0',
-  source_document: '评测题型数据集设计.md',
-  source_type: 'synthetic_demo',
-  images_included: true,
-  image_type: 'numbered_placeholder',
-  note: '附带图片为编号占位图；机器分数与证据为预置演示，不是真实识别结果；人审与裁决需实际完成。'
+  "version": "eval-suites-v1.0",
+  "source_document": "评测题型数据集设计.md",
+  "source_type": "synthetic_demo",
+  "images_included": true,
+  "image_type": "mixed_demo_assets",
+  "note": "配套图片含用户更新的示例图和编号占位图；机器分数与证据仍为预置演示，不是真实识别结果；图片更新不会自动重算已保存评分。",
+  "image_assets": {
+    "assets/ref/S1-001-STEAM.png": {
+      "sha256": "d3113d17712238a276552c0f9bb86dbb9a2bee2f48d458496f6bb22c09722373",
+      "type": "user_updated"
+    },
+    "assets/gen/S1-001-STEAM.png": {
+      "sha256": "d3113d17712238a276552c0f9bb86dbb9a2bee2f48d458496f6bb22c09722373",
+      "type": "user_updated"
+    },
+    "assets/ref/S1-002-STEAM.png": {
+      "sha256": "d3113d17712238a276552c0f9bb86dbb9a2bee2f48d458496f6bb22c09722373",
+      "type": "user_updated"
+    },
+    "assets/gen/S1-002-STEAM.png": {
+      "sha256": "a1c0aa078841606534192ddef081b1a4cb105090b82f851c9e9abe9e40ac12c5",
+      "type": "user_updated"
+    },
+    "assets/ref/S1-003-HEADSET.png": {
+      "sha256": "de4d60f10626b0d1b52b093e480156bca1b400c19c8300e51fc115b6f3a0d8be",
+      "type": "numbered_placeholder"
+    },
+    "assets/gen/S1-003-HEADSET.png": {
+      "sha256": "c659961099fcfe290ac40e598d06cce9c5c5430c8b700d9de49ebb6a84a416f6",
+      "type": "user_updated"
+    },
+    "assets/ref/S1-004-HEADSET.png": {
+      "sha256": "89a336acf1850fc35f82d63b2aa923d95d01f1c2758e94b99c62382362601088",
+      "type": "numbered_placeholder"
+    },
+    "assets/gen/S1-004-HEADSET.png": {
+      "sha256": "9454abf130e3d942587622f2900bc9cabdf1f7028ec215533b659df63215327d",
+      "type": "user_updated"
+    },
+    "assets/ref/S1-005-KETTLE.png": {
+      "sha256": "b6318cb17a371a3aa7e4bdaf9e5710e9ec92b26510fa09d7751fd03c31fbb075",
+      "type": "user_updated"
+    },
+    "assets/gen/S1-005-KETTLE.png": {
+      "sha256": "44699fe639588897b122ef3e0fbfd10a835baa716f047d8edc45ff60ef728a99",
+      "type": "user_updated"
+    },
+    "assets/ref/S2-001-STEAM.png": {
+      "sha256": "f8f4764da289c2d6ea6df4c1c0d7809281d62e0e193a59888fa0ecfb7b1da8d5",
+      "type": "user_updated"
+    },
+    "assets/gen/S2-001-STEAM.png": {
+      "sha256": "f8f4764da289c2d6ea6df4c1c0d7809281d62e0e193a59888fa0ecfb7b1da8d5",
+      "type": "user_updated"
+    },
+    "assets/ref/S2-002-SERUM.png": {
+      "sha256": "d7c41601fe6c02f05f25eb01e8d5ffa2876b7bcffff29f89ed4807269cac6c2e",
+      "type": "numbered_placeholder"
+    },
+    "assets/gen/S2-002-SERUM.png": {
+      "sha256": "069f962bb143f1f140e92709f273924ebea3fd0f3dce2e655c6e1e1c597bfa1a",
+      "type": "numbered_placeholder"
+    },
+    "assets/ref/S2-003-STEAM.png": {
+      "sha256": "a1d1c7332a3faec79af24eefb3f38c1d69351ccecd7683b3a5fd6280e70f66ea",
+      "type": "numbered_placeholder"
+    },
+    "assets/gen/S2-003-STEAM.png": {
+      "sha256": "4deadc26f8fd93788bc0d8213ad4bceab9d9b8892f256801a3e23a755653fbe5",
+      "type": "numbered_placeholder"
+    },
+    "assets/ref/S2-004-SNACK.png": {
+      "sha256": "6c18409884d0dc3c2b2b7f239d9c1891210f6c4a6d5eaca5a6323ea5d34f5617",
+      "type": "numbered_placeholder"
+    },
+    "assets/gen/S2-004-SNACK.png": {
+      "sha256": "c83f6cb5e557df203c7fe462644fca7b98dcdbc209107013e67aa5c6f5eb21e6",
+      "type": "user_updated"
+    },
+    "assets/ref/S2-005-LIP.png": {
+      "sha256": "42c01ea6b561b09fdf6f52b18d1784082e92633d6e56053c78543516e3d4d583",
+      "type": "numbered_placeholder"
+    },
+    "assets/gen/S2-005-LIP.png": {
+      "sha256": "f1a9842de98cd61ea9385b90ba970a07f92b3961cf64151e0bf3ca72df3fb6ab",
+      "type": "user_updated"
+    },
+    "assets/ref/S3-001-JACKET.png": {
+      "sha256": "7b89047fa47789975811f157722f0700b3ece61172f0715cd43f42d73c4f1378",
+      "type": "numbered_placeholder"
+    },
+    "assets/gen/S3-001-JACKET.png": {
+      "sha256": "7856bf17526c72a7e02249dd3355e9364dfa6d76fabf40251f611c2d9c800022",
+      "type": "user_updated"
+    },
+    "assets/ref/S3-002-HOLD.png": {
+      "sha256": "133de7a19090c921a2f574f1d1358266e92c6249dc4956593e5dd7a4885b19dd",
+      "type": "numbered_placeholder"
+    },
+    "assets/gen/S3-002-HOLD.png": {
+      "sha256": "8a7b6c6eeff73f706cc08a093b0d22381c1eee4c6de88930e79484b388ce7e36",
+      "type": "numbered_placeholder"
+    },
+    "assets/ref/S3-003-LIPSTICK.png": {
+      "sha256": "81ff128aaa0fd2207e2359d2f71f3fcd80aede92dcc683665ffab94b4ba961aa",
+      "type": "numbered_placeholder"
+    },
+    "assets/gen/S3-003-LIPSTICK.png": {
+      "sha256": "acd6b06a05256c8b0a4497369779d0f2de2734702b05cbec73980db19dba4f5d",
+      "type": "user_updated"
+    },
+    "assets/ref/S3-004-DRESS.png": {
+      "sha256": "a9acdba1f2ce4267450c41abbceccad1511efd82caae32cbc492dfcf9750a120",
+      "type": "numbered_placeholder"
+    },
+    "assets/gen/S3-004-DRESS.png": {
+      "sha256": "62a1fc7bd14aef2d741eff21cd86125a3322c89c28065e9872f2cb8423f5d69d",
+      "type": "numbered_placeholder"
+    },
+    "assets/ref/S4-001-BG.png": {
+      "sha256": "b69231e0065198e5b5ffb19e2e5817e31250fab9a0f9c0684df0090a2f03e71d",
+      "type": "user_updated"
+    },
+    "assets/gen/S4-001-BG.png": {
+      "sha256": "bad74e00873a58914fa8e0267c7672fffda27e5e421816fe94f074da000c4982",
+      "type": "user_updated"
+    },
+    "assets/ref/S4-002-MAT.png": {
+      "sha256": "140eab0f3cca2393f8ccb9a4d9943e0c194e3e8cbf3f33e1ba0e73f821d7b325",
+      "type": "numbered_placeholder"
+    },
+    "assets/gen/S4-002-MAT.png": {
+      "sha256": "e3fc626a1111f466cea0d7cdb2b5c9c8184791ba840b05fd66cb1f25d1c1183b",
+      "type": "numbered_placeholder"
+    },
+    "assets/ref/S4-003-ADD.png": {
+      "sha256": "6ffa6f16a757377d605517e19c2a47393b9c81cb83b6f8f2d78e5eab75309278",
+      "type": "numbered_placeholder"
+    },
+    "assets/gen/S4-003-ADD.png": {
+      "sha256": "86496b312ec1e71be9738dd0603eb58e6f53117981b9beeedae467fa187c15b3",
+      "type": "user_updated"
+    },
+    "assets/ref/S4-004-COMP.png": {
+      "sha256": "10ca149872fc0d0340700c21ad24d71326868c85e8fce11e5b1c72debacbe889",
+      "type": "numbered_placeholder"
+    },
+    "assets/gen/S4-004-COMP.png": {
+      "sha256": "68c7d7221f5d466b372f54611dd4cbbd3439850bed2eaf907be7097f634b0038",
+      "type": "numbered_placeholder"
+    },
+    "assets/ref/S5-001-CLAIM.png": {
+      "sha256": "1c170c5771d73140e38f3ddfd254d20d90a76c30563c8fdb504e72fede6aefb5",
+      "type": "numbered_placeholder"
+    },
+    "assets/gen/S5-001-CLAIM.png": {
+      "sha256": "0627b4eb55c483a389fbb4f05ba2947762afc11da406e684e83cf674be121106",
+      "type": "numbered_placeholder"
+    },
+    "assets/ref/S5-002-EFFECT.png": {
+      "sha256": "c0e7f9952f95115e5b97872227b7a1ca19f4c97e3b3d63fc03e49839f773741c",
+      "type": "numbered_placeholder"
+    },
+    "assets/gen/S5-002-EFFECT.png": {
+      "sha256": "8ac1d0f33548dfc7ea2149b753227f47c4000f6a834ad81763dae2637eead71e",
+      "type": "numbered_placeholder"
+    },
+    "assets/ref/S5-003-COMPARE.png": {
+      "sha256": "f088ed94f4d4aa11204b10c7128e9b3ff4f9f63436b121d260373f1c1370b144",
+      "type": "numbered_placeholder"
+    },
+    "assets/gen/S5-003-COMPARE.png": {
+      "sha256": "0c1d4c55689d189ebfa2004181d3bc01d478020799a6d1d38380904b73f1e435",
+      "type": "numbered_placeholder"
+    },
+    "assets/ref/S5-004-LOGO.png": {
+      "sha256": "b2c54158dad85c54f0fe42fbf618012eaff0fbbf21e2602f02cbe355bc598fe9",
+      "type": "numbered_placeholder"
+    },
+    "assets/gen/S5-004-LOGO.png": {
+      "sha256": "163ddbffe2dca38c84bc74ef709d3386a0d403eca9574ad36e24de4443c6a7f5",
+      "type": "user_updated"
+    }
+  },
+  "image_counts": {
+    "total": 44,
+    "updated": 18,
+    "placeholder": 26
+  }
 };
 
 // eval-suite-data.js

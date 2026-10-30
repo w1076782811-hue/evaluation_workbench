@@ -248,7 +248,7 @@
       const hasGroup = !sample.applicable_dims.includes('L6') || group.length >= 2 && group.every(item => getSampleImageUrl(item, true, run));
       const reference = getSampleImageUrl(sample, false, run); const generated = getSampleImageUrl(sample, true, run);
       return { sample_id: sample.sample_id, reference_ready: Boolean(reference && sample.prompt_raw), generated_ready: Boolean(generated),
-        placeholder: [reference, generated].some(url => url.startsWith('assets/')), group_ready: hasGroup };
+        placeholder: [reference, generated].some(url => getBundledImageMetadata(url)?.type === 'numbered_placeholder'), group_ready: hasGroup };
     });
   }
 
@@ -549,7 +549,8 @@
   function renderTaskGuidance(route) {
     const run = getActiveRun();
     const suite = (window.EVAL_SUITES || []).some(item => item.task.run_id === (run.asset_source_run_id || run.run_id));
-    const demo = suite ? '<p class="notice compact">演示题库：配套图片为编号占位素材，机器评分、OCR 和视觉证据为预置设计，不是真实图片识别结果。可替换为实际图片后复核。</p>' : '';
+    const materials = getBundledMaterialSummary(getViewSamples(), run);
+    const demo = suite ? `<p class="notice compact">本范围配图：${materials.updated} 张用户更新示例、${materials.placeholder} 张编号占位图${materials.local ? `、${materials.local} 张本机关联图` : ''}。机器评分、OCR 和视觉证据仍为预置演示，不是真实图片识别结果。图片更新不会重算已保存评分，请按当前图片复核。</p>` : '';
     if (getReviews().length) return demo;
     const reasons = { dashboard: '当前还没有已保存的评分。可先选一套题开始评测，也可导入实际评测结果。', report: '报告基于已保存评分生成，当前任务范围内为 0 条。机器初评可单独查看，但不代表人审通过。', calibration: '暂无待裁决记录。先保存人工评分；人机分歧、机器不确定或触发阻断时会进入这里。', cases: '案例来自已保存的缺陷记录和裁决结论。先完成评分，再建立问题案例、正例或规则澄清。' };
     return demo + (reasons[route] ? `<div class="notice"><p>${reasons[route]}</p><a class="button secondary small" href="#/task">选择任务并开始</a><a class="button ghost small" href="#/setup">导入评测集</a></div>` : '');
@@ -557,7 +558,7 @@
 
   function renderSuiteCoverage() {
     const samples = (window.EVAL_SUITES || []).flatMap(suite => suite.samples);
-    return `<article class="card"><div class="card-heading"><h2>内置题库总览</h2><button class="button primary" data-action="create-task">按范围新建任务</button></div><div class="metric-strip"><div>${window.EVAL_SUITES.length}<small>套题</small></div><div>${samples.length}<small>道题</small></div><div>${new Set(samples.map(sample => sample.category)).size}<small>品类</small></div><div>${new Set(samples.map(sample => sample.image_type)).size}<small>实际图型</small></div></div><p>白底主图、场景图、模特图、编辑图、合规红线五套题分别建立独立批次。配有 44 张编号占位图，供流程演示。</p><a class="button secondary" href="#/task">进入题库任务</a></article>`;
+    return `<article class="card"><div class="card-heading"><h2>内置题库总览</h2><button class="button primary" data-action="create-task">按范围新建任务</button></div><div class="metric-strip"><div>${window.EVAL_SUITES.length}<small>套题</small></div><div>${samples.length}<small>道题</small></div><div>${new Set(samples.map(sample => sample.category)).size}<small>品类</small></div><div>${new Set(samples.map(sample => sample.image_type)).size}<small>实际图型</small></div></div><p>白底主图、场景图、模特图、编辑图、合规红线五套题分别建立独立批次。配有 ${window.EVAL_SUITE_METADATA.image_counts.total} 张图片：${window.EVAL_SUITE_METADATA.image_counts.updated} 张用户更新示例、${window.EVAL_SUITE_METADATA.image_counts.placeholder} 张编号占位图；机器评分仍为预置演示。</p><a class="button secondary" href="#/task">进入题库任务</a></article>`;
   }
 
   function renderSuiteResults() {
@@ -591,7 +592,24 @@
     if (run.asset_source_run_id && state.imageUrls[`${run.asset_source_run_id}:${sample.sample_id}:${kind}`]) return state.imageUrls[`${run.asset_source_run_id}:${sample.sample_id}:${kind}`];
     const suite = (window.EVAL_SUITES || []).find(item => item.task.run_id === (run.asset_source_run_id || run.run_id));
     const bundled = suite?.samples.find(item => item.sample_id === sample.sample_id);
-    return bundled ? bundled[generated ? 'generated_image' : 'reference_image'] : '';
+    if (!bundled) return '';
+    const imagePath = bundled[generated ? 'generated_image' : 'reference_image'];
+    const metadata = getBundledImageMetadata(imagePath);
+    return metadata ? `${imagePath}?v=${metadata.sha256.slice(0, 12)}` : imagePath;
+  }
+
+  function getBundledImageMetadata(url) {
+    return window.EVAL_SUITE_METADATA.image_assets[String(url).split('?')[0]] || null;
+  }
+
+  function getBundledMaterialSummary(samples, run) {
+    return samples.flatMap(sample => [getSampleImageUrl(sample, false, run), getSampleImageUrl(sample, true, run)]).reduce((summary, url) => {
+      const metadata = getBundledImageMetadata(url);
+      if (metadata?.type === 'user_updated') summary.updated += 1;
+      if (metadata?.type === 'numbered_placeholder') summary.placeholder += 1;
+      if (url.startsWith('blob:')) summary.local += 1;
+      return summary;
+    }, { updated: 0, placeholder: 0, local: 0 });
   }
 
   function renderScoreRow(dimension, sample, draft) {
