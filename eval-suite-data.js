@@ -25,16 +25,16 @@ window.EVAL_SUITE_METADATA = {
       "type": "user_updated"
     },
     "assets/ref/S1-003-HEADSET.png": {
-      "sha256": "de4d60f10626b0d1b52b093e480156bca1b400c19c8300e51fc115b6f3a0d8be",
-      "type": "numbered_placeholder"
+      "sha256": "aa13d126be175a8841266fe624003423de1c070c03f0f0ffa94bc602a03f7baf",
+      "type": "user_updated"
     },
     "assets/gen/S1-003-HEADSET.png": {
       "sha256": "c659961099fcfe290ac40e598d06cce9c5c5430c8b700d9de49ebb6a84a416f6",
       "type": "user_updated"
     },
     "assets/ref/S1-004-HEADSET.png": {
-      "sha256": "89a336acf1850fc35f82d63b2aa923d95d01f1c2758e94b99c62382362601088",
-      "type": "numbered_placeholder"
+      "sha256": "02ba103a327f108b1554502c367594aa8d3a22bbe07ebf52b7f89d8e31072683",
+      "type": "user_updated"
     },
     "assets/gen/S1-004-HEADSET.png": {
       "sha256": "9454abf130e3d942587622f2900bc9cabdf1f7028ec215533b659df63215327d",
@@ -73,24 +73,24 @@ window.EVAL_SUITE_METADATA = {
       "type": "numbered_placeholder"
     },
     "assets/ref/S2-004-SNACK.png": {
-      "sha256": "6c18409884d0dc3c2b2b7f239d9c1891210f6c4a6d5eaca5a6323ea5d34f5617",
-      "type": "numbered_placeholder"
+      "sha256": "05a08707b93cc030cdf18712c37303f10003226802766b309b558ad972cb4447",
+      "type": "user_updated"
     },
     "assets/gen/S2-004-SNACK.png": {
       "sha256": "c83f6cb5e557df203c7fe462644fca7b98dcdbc209107013e67aa5c6f5eb21e6",
       "type": "user_updated"
     },
     "assets/ref/S2-005-LIP.png": {
-      "sha256": "42c01ea6b561b09fdf6f52b18d1784082e92633d6e56053c78543516e3d4d583",
-      "type": "numbered_placeholder"
+      "sha256": "1e45022ec8624d668af6664c783d4b8f34af012bea4de991f62fe8c4261da4bb",
+      "type": "user_updated"
     },
     "assets/gen/S2-005-LIP.png": {
       "sha256": "f1a9842de98cd61ea9385b90ba970a07f92b3961cf64151e0bf3ca72df3fb6ab",
       "type": "user_updated"
     },
     "assets/ref/S3-001-JACKET.png": {
-      "sha256": "7b89047fa47789975811f157722f0700b3ece61172f0715cd43f42d73c4f1378",
-      "type": "numbered_placeholder"
+      "sha256": "6d7195d42e465f1cf56d8cab52aa2fe37819b748290541f826d1d13da19ace7d",
+      "type": "user_updated"
     },
     "assets/gen/S3-001-JACKET.png": {
       "sha256": "7856bf17526c72a7e02249dd3355e9364dfa6d76fabf40251f611c2d9c800022",
@@ -105,8 +105,8 @@ window.EVAL_SUITE_METADATA = {
       "type": "numbered_placeholder"
     },
     "assets/ref/S3-003-LIPSTICK.png": {
-      "sha256": "81ff128aaa0fd2207e2359d2f71f3fcd80aede92dcc683665ffab94b4ba961aa",
-      "type": "numbered_placeholder"
+      "sha256": "7ddf1584bfabb4bdc4e8198bfd7e62c37c954d4368566ed360f3cb0166080213",
+      "type": "user_updated"
     },
     "assets/gen/S3-003-LIPSTICK.png": {
       "sha256": "acd6b06a05256c8b0a4497369779d0f2de2734702b05cbec73980db19dba4f5d",
@@ -137,8 +137,8 @@ window.EVAL_SUITE_METADATA = {
       "type": "numbered_placeholder"
     },
     "assets/ref/S4-003-ADD.png": {
-      "sha256": "6ffa6f16a757377d605517e19c2a47393b9c81cb83b6f8f2d78e5eab75309278",
-      "type": "numbered_placeholder"
+      "sha256": "71c91bad3661fa53b04d02562b3598fe7cd88d665e6387712ec68b537cd8bb2f",
+      "type": "user_updated"
     },
     "assets/gen/S4-003-ADD.png": {
       "sha256": "86496b312ec1e71be9738dd0603eb58e6f53117981b9beeedae467fa187c15b3",
@@ -177,8 +177,8 @@ window.EVAL_SUITE_METADATA = {
       "type": "numbered_placeholder"
     },
     "assets/ref/S5-004-LOGO.png": {
-      "sha256": "b2c54158dad85c54f0fe42fbf618012eaff0fbbf21e2602f02cbe355bc598fe9",
-      "type": "numbered_placeholder"
+      "sha256": "820d060e21b837f116468067cb82ced588349be37677e1e7ed23b468fab16085",
+      "type": "user_updated"
     },
     "assets/gen/S5-004-LOGO.png": {
       "sha256": "163ddbffe2dca38c84bc74ef709d3386a0d403eca9574ad36e24de4443c6a7f5",
@@ -187,8 +187,8 @@ window.EVAL_SUITE_METADATA = {
   },
   "image_counts": {
     "total": 44,
-    "updated": 18,
-    "placeholder": 26
+    "updated": 26,
+    "placeholder": 18
   }
 };
 
